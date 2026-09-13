@@ -1,0 +1,2808 @@
+#!/bin/bash
+# agent-chain-doctor 1.1 — read-only diagnosis of a scheduled AI-agent chain.
+#
+# You scheduled an agent to work while you sleep. It ran the first night. The question you
+# cannot answer alone is: is it still running, and what will stop it for good without saying
+# anything? Those failures are silent by construction — the scheduler does not complain, the
+# agent is not there to shout, and the only symptom is an absence. Nobody notices an absence.
+#
+# This tool reads. It never writes, never asks the network, never reports to anyone.
+#
+# THE ONE RULE THAT MAKES THE REST WORTH READING — there are three verdicts and no fourth:
+#
+#   EXPOSED   a proof of the defect was found; the proof is printed under the verdict
+#   GUARDED   a proof of the protection was found; the proof is printed too
+#   UNKNOWN   this check could not decide — and it says exactly what it was missing
+#
+# There is no "OK". A check that measured nothing returns UNKNOWN, never GUARDED. An
+# instrument that answers "all fine" when it measured nothing is worse than no instrument:
+# it manufactures a confidence no measurement supports.
+#
+# Two levels of proof, printed on every line, because where a conclusion comes from is part
+# of the conclusion:
+#
+#   [live]    state of the system — a file exists or not, a pid is alive or dead, an epoch is
+#             in the past or not. These are facts and carry no reserve.
+#   [static]  a pattern in the launcher's source — a heuristic. It reads shell it did not
+#             write, so it misses things (the normal case) and it can recognise a dangerous
+#             shape in a context where it is not dangerous. Every static finding prints
+#             file:line and the line itself. You decide; the tool only points.
+#
+# Usage:  agent-chain-doctor [--verbose] [--plist FILE] [LAUNCHER]
+#
+# Exit codes: 0 when nothing is EXPOSED, 1 when something is, 2 when the tool REFUSED to
+# diagnose (bad option, unreadable clock, target that is not a shell script, no chain found).
+# Three values and no richer scale — a rich exit code invites automating it blind. Two is the
+# one that must never be read as "all clear": it means no diagnosis happened at all.
+
+set -u
+
+VERSION="1.1"
+VERBOSE=0
+LAUNCHER=""
+PLIST=""
+
+# --- Test hooks -------------------------------------------------------------------------
+# Read-only overrides so the test suite can replay a scheduler registry or a sleep history
+# without one existing on the machine running the tests. Both name a FILE whose contents are
+# used instead of running the command. They are documented here rather than hidden because a
+# diagnostic tool you cannot test is a diagnostic tool you should not trust.
+ACD_LAUNCHCTL_LIST="${ACD_LAUNCHCTL_LIST:-}"
+ACD_PMSET_LOG="${ACD_PMSET_LOG:-}"
+# The directory discovery walks when no launcher is named. Overridable for the same reason:
+# without it, argument-free discovery — the path most users will take — could only ever be
+# tested against the machine running the suite.
+ACD_LAUNCHAGENTS_DIR="${ACD_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
+
+usage() {
+  cat <<'USAGE'
+agent-chain-doctor 1.1 — read-only diagnosis of a scheduled AI-agent chain.
+
+  agent-chain-doctor [--verbose] [--plist FILE] [LAUNCHER]
+
+  LAUNCHER      path to the session script your scheduler runs. This is the recommended
+                form and the only one that guesses nothing. At most one may be given.
+  --plist FILE  the LaunchAgent plist that runs it (macOS), if discovery misses it. Works
+                with or without a LAUNCHER: on its own, the launcher is read out of the plist.
+  --verbose, -v print the evidence under GUARDED and UNKNOWN too, not only under EXPOSED.
+                (-v is verbose here, NOT version. The version flag is --version, spelled out.)
+  --version     print the version and exit.
+  --help, -h    this text.
+
+Exit codes: 0 nothing EXPOSED · 1 something EXPOSED · 2 refused to diagnose (bad or empty
+                option, two launchers named, unreadable clock, a target that is not a readable
+                '#!' script, a --plist naming none, no chain found, or a script whose control
+                files this tool cannot resolve). A 2 is not a clean bill of health: it
+                means no diagnosis happened.
+
+With no LAUNCHER, the tool looks through your own user's scheduler entries (launchd agents,
+your crontab, your systemd user timers) for something that looks like an agent chain, and
+prints what it found before diagnosing anything.
+
+It writes nothing, sends nothing, and needs no privilege.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --verbose|-v) VERBOSE=1 ;;
+    # `--plist` with nothing after it used to be accepted as a no-op, and a second positional
+    # argument used to silently overwrite the first. Both were found by pointing the tool at a
+    # mistyped command line: it diagnosed a DIFFERENT chain than the one named and exited 0.
+    # A diagnostic that answers a question you did not ask is worse than one that refuses.
+    --plist)      shift
+                  case "${1:-}" in
+                    ''|-*) echo "agent-chain-doctor: --plist needs a file path." >&2; exit 2 ;;
+                  esac
+                  PLIST="$1" ;;
+    --version)    echo "agent-chain-doctor $VERSION"; exit 0 ;;
+    --help|-h)    usage; exit 0 ;;
+    -*)           echo "agent-chain-doctor: unknown option '$1'" >&2; usage >&2; exit 2 ;;
+    # An EMPTY positional argument used to fall straight through to discovery, which found
+    # some OTHER chain and reported on it at exit 0 — word for word the --plist defect above,
+    # fixed for the option and never for the argument the README actually recommends. It is
+    # the likeliest of all mistyped command lines, because nobody types it: a script writes
+    # `agent-chain-doctor "$CHAIN"` and $CHAIN is unset. Found in exp-008 by making exactly
+    # that mistake, four times in a row, and reading four identical reports of the wrong chain.
+    *)            if [ -z "$1" ]; then
+                    echo "agent-chain-doctor: the launcher path is empty — an unset or empty variable was expanded into the command line." >&2
+                    echo "  Refusing to guess: with no path it would diagnose whatever chain it found instead, and say nothing about it." >&2
+                    exit 2
+                  fi
+                  if [ -n "$LAUNCHER" ]; then
+                    echo "agent-chain-doctor: two launchers given ('$LAUNCHER' and '$1') — name one." >&2
+                    exit 2
+                  fi
+                  LAUNCHER="$1" ;;
+  esac
+  shift
+done
+
+# =========================================================================================
+# Portable primitives. Every one of them returns EMPTY rather than a wrong number: a check
+# that receives nothing says UNKNOWN, a check that receives a wrong number lies.
+# =========================================================================================
+
+# mtime FILE → epoch seconds, or empty. BSD stat first, GNU stat second; both are tried
+# because this tool runs on someone else's machine, once, without negotiation.
+mtime() {
+  local m
+  m=$(stat -f %m "$1" 2>/dev/null) || m=""
+  [ -n "$m" ] || m=$(stat -c %Y "$1" 2>/dev/null) || m=""
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$m"
+}
+
+# fsize FILE → bytes, or empty.
+fsize() {
+  local s
+  s=$(stat -f %z "$1" 2>/dev/null) || s=""
+  [ -n "$s" ] || s=$(stat -c %s "$1" 2>/dev/null) || s=""
+  case "$s" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$s"
+}
+
+NOW=$(date +%s 2>/dev/null)
+case "$NOW" in ''|*[!0-9]*)
+  echo "agent-chain-doctor: cannot read the clock — refusing to diagnose anything." >&2
+  exit 2 ;;
+esac
+
+# ago SECONDS → "6 days ago" / "3 h ago" / "just now". Only ever fed a validated number.
+ago() {
+  local s="$1"
+  [ "$s" -lt 0 ] 2>/dev/null && { printf 'in the future'; return; }
+  if   [ "$s" -lt 120 ];   then printf '%s s ago' "$s"
+  elif [ "$s" -lt 7200 ];  then printf '%s min ago' "$((s / 60))"
+  elif [ "$s" -lt 172800 ];then printf '%s h ago' "$((s / 3600))"
+  else                          printf '%s days ago' "$((s / 86400))"
+  fi
+}
+
+# human_size BYTES → "4.2 KB" / "812 B".
+human_size() {
+  local b="$1"
+  if   [ "$b" -lt 1024 ];    then printf '%s B' "$b"
+  elif [ "$b" -lt 1048576 ]; then printf '%s.%s KB' "$((b / 1024))" "$(( (b % 1024) * 10 / 1024 ))"
+  else                            printf '%s.%s MB' "$((b / 1048576))" "$(( (b % 1048576) * 10 / 1048576 ))"
+  fi
+}
+
+# pid_alive PID → true if the process exists. `ps -p` and NOT `kill -0`: kill -0 on another
+# user's pid fails with EPERM, which would report "owner dead" on a perfectly held lock.
+pid_alive() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  ps -p "$1" >/dev/null 2>&1
+}
+
+# etime_secs ETIME → seconds. `ps -o etime=` returns MM:SS, HH:MM:SS or D-HH:MM:SS depending
+# on the duration. All three are read, or the function fails — never a wrong number.
+etime_secs() {
+  local e="$1" d=0 h=0 m=0 s=0 rest
+  case "$e" in
+    *-*) d="${e%%-*}"; e="${e#*-}" ;;
+  esac
+  case "$e" in
+    *:*:*) h="${e%%:*}"; rest="${e#*:}"; m="${rest%%:*}"; s="${rest#*:}" ;;
+    *:*)   m="${e%%:*}"; s="${e#*:}" ;;
+    *)     return 1 ;;
+  esac
+  [ -n "$d" ] || d=0; [ -n "$h" ] || h=0; [ -n "$m" ] || m=0; [ -n "$s" ] || s=0
+  case "$d$h$m$s" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$(( 10#$d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))"
+}
+
+# trim_line TEXT → the first line, cut to 100 characters, with an ellipsis when something WAS
+# cut. Used for the one-line header fields of the CHAIN block.
+trim_line() {
+  local t; t=$(printf '%s' "$1" | tr -d '\r' | head -n 1)
+  if [ ${#t} -gt 100 ]; then printf '%s…' "${t:0:99}"; else printf '%s' "$t"; fi
+}
+
+# wrap_ev TEXT → the evidence, folded onto indented continuation lines, words never split.
+# Evidence is quoted from files this tool does not own, so it must never blow up a terminal —
+# but before this existed the fold was a hard `cut -c1-100`, and the sentences this tool writes
+# ITSELF are longer than that. Reports ended on "leaves an EMPTY " and "the launcher declares
+# no", mid-word, on the very line that says why the defect kills a chain. Found by running the
+# tool and reading the output, not by reading the code. A single token wider than the line — a
+# minified source line — is still cut, and says so with an ellipsis.
+EV_INDENT="                    "
+EV_WIDTH=76
+wrap_ev() {
+  local text line word rest
+  text=$(printf '%s' "$1" | tr -d '\r' | tr '\n' ' ')
+  while case "$text" in *"  "*) true ;; *) false ;; esac; do text="${text//  / }"; done
+  text="${text# }"; text="${text% }"
+  line=""; rest="$text"
+  while [ -n "$rest" ]; do
+    word="${rest%% *}"
+    if [ "$word" = "$rest" ]; then rest=""; else rest="${rest#* }"; fi
+    [ -n "$word" ] || continue
+    if [ ${#word} -gt "$EV_WIDTH" ]; then word="${word:0:$((EV_WIDTH - 1))}…"; fi
+    if [ -z "$line" ]; then line="$word"
+    elif [ $(( ${#line} + 1 + ${#word} )) -le "$EV_WIDTH" ]; then line="$line $word"
+    else printf '%s%s\n' "$EV_INDENT" "$line"; line="$word"
+    fi
+  done
+  [ -n "$line" ] && printf '%s%s\n' "$EV_INDENT" "$line"
+}
+
+# =========================================================================================
+# Findings. Three buckets, and a headline/full pair per finding so --verbose can add the
+# evidence under GUARDED and UNKNOWN without the default hiding that they exist.
+# =========================================================================================
+
+N_EXPOSED=0; N_GUARDED=0; N_UNKNOWN=0
+OUT_EXPOSED=""; OUT_GUARDED_S=""; OUT_GUARDED_F=""; OUT_UNKNOWN_S=""; OUT_UNKNOWN_F=""
+
+finding() {  # $1 verdict  $2 id  $3 level  $4 summary  $5.. evidence lines
+  local verdict="$1" id="$2" level="$3" summary="$4"; shift 4
+  local head full ev
+  head=$(printf '  %-8s %-4s %-44s [%s]' "$verdict" "$id" "$summary" "$level")
+  full="$head"
+  for ev in "$@"; do
+    [ -n "$ev" ] || continue
+    full="$full
+$(wrap_ev "$ev")"
+  done
+  case "$verdict" in
+    EXPOSED) N_EXPOSED=$((N_EXPOSED + 1)); OUT_EXPOSED="$OUT_EXPOSED$full
+" ;;
+    GUARDED) N_GUARDED=$((N_GUARDED + 1))
+             OUT_GUARDED_S="$OUT_GUARDED_S$head
+"; OUT_GUARDED_F="$OUT_GUARDED_F$full
+" ;;
+    UNKNOWN) N_UNKNOWN=$((N_UNKNOWN + 1))
+             OUT_UNKNOWN_S="$OUT_UNKNOWN_S$head
+"; OUT_UNKNOWN_F="$OUT_UNKNOWN_F$full
+" ;;
+  esac
+}
+
+# =========================================================================================
+# Discovery. The tool must work on a chain it did not install, so it widens step by step and
+# PRINTS WHAT IT FOUND BEFORE DIAGNOSING ANYTHING — a diagnosis whose object is unknown is
+# worth nothing. Nothing is guessed without saying so.
+# =========================================================================================
+
+SCHEDULER=""          # "launchd" | "cron" | "systemd" | ""
+SCHED_LABEL=""
+SCHED_DETAIL=""
+SCHED_ENV=""          # NAME=VALUE per line, from the scheduler's declared environment
+SCHED_ERRPATH=""
+SCHED_OUTPATH=""
+SCHED_PROGARGS=""     # one argument per line
+SCHED_STATUS=""       # last exit code of the probe, per the scheduler registry
+SCHED_SCRIPT=""       # the launcher the scheduler entry actually runs
+SCHED_PID=""
+MARKER_SCORE=""
+DISCOVERY_NOTES=""
+
+note() { DISCOVERY_NOTES="$DISCOVERY_NOTES  $1
+"; }
+
+# A candidate has to be a TEXT SCRIPT before any of this means anything. Without this gate
+# the marker filter greps compiled binaries, and a Mach-O application scores 5/5 on the first
+# try: the byte sequences "lock", "next", "prompt" and an agent's name all occur somewhere in
+# any large executable. Measured, not imagined — the first real run of this tool identified a
+# Mac app as the user's agent chain, at 5/5, and then made a confident finding about it. Two
+# bytes decide it.
+is_text_script() {
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  [ "$(head -c 2 "$1" 2>/dev/null)" = "#!" ]
+}
+
+# A chain is recognised by what its launcher mentions, not by its filename. Five markers;
+# two are enough. The score is printed, so a user whose chain is not recognised sees why.
+markers_of() {  # $1 = script path → "N/5"
+  local f="$1" n=0
+  grep -qE '(claude|codex|aider|gemini|ollama|cursor-agent|goose|llm)\b' "$f" 2>/dev/null && n=$((n + 1))
+  grep -qiE 'lock' "$f" 2>/dev/null && n=$((n + 1))
+  grep -qiE 'wake|wakeup|next|due' "$f" 2>/dev/null && n=$((n + 1))
+  grep -qiE 'prompt' "$f" 2>/dev/null && n=$((n + 1))
+  grep -qiE 'caffeinate|systemd-inhibit|inhibit' "$f" 2>/dev/null && n=$((n + 1))
+  printf '%s/5' "$n"
+}
+marker_count() { printf '%s' "${1%%/*}"; }
+
+# ProgramArguments[0] is almost never the script: the kit's own plist runs `/bin/bash` and
+# puts the script in [1]. Take the first argument that is not a known interpreter and not a
+# flag. Getting this wrong makes discovery fail on the most standard installation there is.
+is_interpreter() {
+  case "$(basename "$1" 2>/dev/null)" in
+    bash|sh|zsh|ksh|dash|env|python|python2|python3|perl|ruby|node|osascript) return 0 ;;
+  esac
+  return 1
+}
+
+# plutil -convert json writes to STDOUT with -o -; the plist file is not touched (verified).
+# `plutil -p` prints a house format that must not be parsed.
+#
+# And it escapes every forward slash: a path comes out of that JSON as "\/Users\/x\/agent".
+# Unescaped, NOTHING matches — not the launcher against its scheduler entry, not the error
+# path against the one the launcher drains, not a PATH entry against a real directory. Every
+# plist-derived string goes through here.
+json_unescape() { sed -e 's|\\/|/|g' -e 's|\\"|"|g'; }
+
+json_str() {  # $1 json  $2 key → first string value for that key
+  printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 | json_unescape
+}
+json_num() {  # $1 json  $2 key → first numeric value
+  printf '%s' "$1" | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1
+}
+json_arr() {  # $1 json  $2 key → one element per line
+  printf '%s' "$1" \
+    | sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' \
+    | tr ',' '\n' \
+    | sed 's/^[[:space:]]*"//; s/"[[:space:]]*$//; s/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | json_unescape
+}
+
+# read_plist FILE — fills the SCHED_* globals, including SCHED_SCRIPT (the launcher this
+# entry runs). It returns a STATUS and sets globals; it does not print the script path.
+# Printing it would mean calling this from a `$( )`, which is a subshell — every global it
+# just set would be thrown away the moment it returned, and the whole scheduler side of the
+# report would be blank without a single error.
+# EVERY scheduler field is cleared together, not just SCHED_SCRIPT. Discovery reads every
+# plist in ~/Library/LaunchAgents in a loop, and the fields left behind by a candidate that
+# did NOT match were still standing when the loop gave up: pointed at the kit's own launcher,
+# this tool printed "scheduler not identified" in the header and, three lines further down,
+# two confident EXPOSED findings built on the error path and the PATH of an unrelated Mac
+# updater it had walked past. Two false positives from one missing reset — the exact
+# wolf-crying this tool exists not to do. Found by running it on the kit, not by reading it.
+clear_sched() {
+  SCHED_SCRIPT=""; SCHED_LABEL=""; SCHED_ERRPATH=""; SCHED_OUTPATH=""
+  SCHED_PROGARGS=""; SCHED_ENV=""; SCHED_DETAIL=""; SCHED_STATUS=""; SCHED_PID=""
+}
+
+read_plist() {  # $1 = plist path → 0 and SCHED_* set, or 1
+  local p="$1" json arg
+  # EVERY field is cleared, not just SCHED_SCRIPT. Discovery calls this in a loop over every
+  # plist in ~/Library/LaunchAgents, and the fields left behind by a candidate that did NOT
+  # match were still standing when the loop gave up: pointed at the kit's own launcher, this
+  # tool reported "scheduler not identified" in the header and, three lines further down, two
+  # confident EXPOSED findings built on the error path and the PATH of an unrelated Mac
+  # updater it had walked past. Two false positives from one missing reset — the exact
+  # wolf-crying this tool exists not to do. Found by running it on the kit, not by reading it.
+  clear_sched
+  json=$(plutil -convert json -o - "$p" 2>/dev/null) || return 1
+  [ -n "$json" ] || return 1
+  SCHED_LABEL=$(json_str "$json" "Label")
+  SCHED_ERRPATH=$(json_str "$json" "StandardErrorPath")
+  SCHED_OUTPATH=$(json_str "$json" "StandardOutPath")
+  SCHED_PROGARGS=$(json_arr "$json" "ProgramArguments")
+  local interval; interval=$(json_num "$json" "StartInterval")
+  SCHED_DETAIL="${SCHED_LABEL:-$(basename "$p")}"
+  [ -n "$interval" ] && SCHED_DETAIL="$SCHED_DETAIL, every ${interval}s"
+  # EnvironmentVariables is a nested object, and ALL of it matters, not just PATH: a variable
+  # declared here is the value the chain actually runs with, because `: "${VAR:=default}"` in
+  # the launcher only fires when the variable is unset. Read the launcher's defaults without
+  # this merge and the report describes files nobody uses.
+  local envblk
+  envblk=$(printf '%s' "$json" | sed -n 's/.*"EnvironmentVariables"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p')
+  if [ -n "$envblk" ]; then
+    SCHED_ENV=$(printf '%s' "$envblk" | tr ',' '\n' \
+      | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*:[[:space:]]*"/=/' -e 's/"[[:space:]]*$//' \
+      | json_unescape)
+  fi
+  # The launcher is the first argument that is NOT an interpreter. ProgramArguments[0] is
+  # almost never it: the standard installation runs `/bin/bash` and puts the script in [1].
+  while IFS= read -r arg; do
+    [ -n "$arg" ] || continue
+    case "$arg" in -*) continue ;; esac
+    is_interpreter "$arg" && continue
+    SCHED_SCRIPT="$arg"
+    break
+  done <<EOF
+$SCHED_PROGARGS
+EOF
+  return 0
+}
+
+launchctl_list() {
+  if [ -n "$ACD_LAUNCHCTL_LIST" ] && [ -r "$ACD_LAUNCHCTL_LIST" ]; then
+    cat "$ACD_LAUNCHCTL_LIST" 2>/dev/null
+  else
+    command -v launchctl >/dev/null 2>&1 && launchctl list 2>/dev/null
+  fi
+}
+
+# The Status column of `launchctl list` carries the LAST EXIT CODE of the probe. It is the
+# only signal that tells "the chain is quiet because it is waiting" apart from "the chain
+# dies at every tick" — and both look identical from the outside.
+read_sched_status() {
+  [ -n "$SCHED_LABEL" ] || return 1
+  local line
+  line=$(launchctl_list | awk -v l="$SCHED_LABEL" '$3 == l { print $1 "\t" $2; exit }')
+  [ -n "$line" ] || return 1
+  SCHED_PID="${line%%	*}"
+  SCHED_STATUS="${line#*	}"
+  return 0
+}
+
+discover_launchd() {
+  local p script best="" best_n=-1 best_plist="" cand
+  command -v plutil >/dev/null 2>&1 || return 1
+  for p in "$ACD_LAUNCHAGENTS_DIR"/*.plist; do
+    [ -f "$p" ] || continue
+    read_plist "$p" || continue
+    script="$SCHED_SCRIPT"
+    [ -n "$script" ] || continue
+    is_text_script "$script" || continue
+    cand=$(markers_of "$script")
+    [ "$(marker_count "$cand")" -ge 2 ] || continue
+    if [ "$(marker_count "$cand")" -gt "$best_n" ]; then
+      best_n=$(marker_count "$cand"); best="$script"; best_plist="$p"; MARKER_SCORE="$cand"
+    fi
+  done
+  [ -n "$best" ] || { clear_sched; return 1; }
+  LAUNCHER="$best"
+  read_plist "$best_plist" || true
+  SCHEDULER="launchd"
+  read_sched_status || true
+  return 0
+}
+
+discover_cron() {
+  local line tok script best="" best_n=-1 cand
+  command -v crontab >/dev/null 2>&1 || return 1
+  # `crontab -l` exits 1 with a message on stderr when there is no crontab. That is the
+  # NORMAL case and it must never become a finding.
+  while IFS= read -r line; do
+    case "$line" in ''|\#*) continue ;; esac
+    for tok in $line; do
+      case "$tok" in
+        /*) script="$tok" ;;
+        *)  continue ;;
+      esac
+      is_text_script "$script" || continue
+      cand=$(markers_of "$script")
+      [ "$(marker_count "$cand")" -ge 2 ] || continue
+      if [ "$(marker_count "$cand")" -gt "$best_n" ]; then
+        best_n=$(marker_count "$cand"); best="$script"; MARKER_SCORE="$cand"
+        SCHED_DETAIL=$(trim_line "$line")
+        # The redirection target on the schedule line is where the probe's own errors land.
+        SCHED_ERRPATH=$(printf '%s' "$line" | sed -n 's/.*2*>>*[[:space:]]*\([^[:space:]&]*\).*/\1/p' | head -n 1)
+      fi
+    done
+  done <<EOF
+$(crontab -l 2>/dev/null)
+EOF
+  [ -n "$best" ] || { clear_sched; return 1; }
+  LAUNCHER="$best"
+  SCHEDULER="cron"
+  return 0
+}
+
+discover_systemd() {
+  local unit script best="" best_n=-1 cand execline svc
+  command -v systemctl >/dev/null 2>&1 || return 1
+  while IFS= read -r unit; do
+    [ -n "$unit" ] || continue
+    # A .timer unit has [Timer]/OnCalendar/Unit=. `ExecStart` is a [Service] directive and
+    # lives in the .service it activates — reading it out of the .timer returned nothing on
+    # every standard timer/service pair, so systemd discovery could never succeed. Found by a
+    # cold reader confronting the README's "handles systemd user timers" with the code.
+    # Resolve the activated unit first: an explicit `Unit=` if the timer names one, otherwise
+    # the same stem with .service, which is what systemd itself defaults to.
+    svc=$(systemctl --user cat "$unit" 2>/dev/null | sed -n 's/^Unit=//p' | head -n 1)
+    [ -n "$svc" ] || svc="${unit%.timer}.service"
+    execline=$(systemctl --user cat "$svc" 2>/dev/null | sed -n 's/^ExecStart=//p' | head -n 1)
+    [ -n "$execline" ] || continue
+    for script in $execline; do
+      case "$script" in /*) ;; *) continue ;; esac
+      is_interpreter "$script" && continue
+      is_text_script "$script" || continue
+      cand=$(markers_of "$script")
+      [ "$(marker_count "$cand")" -ge 2 ] || continue
+      if [ "$(marker_count "$cand")" -gt "$best_n" ]; then
+        best_n=$(marker_count "$cand"); best="$script"; MARKER_SCORE="$cand"
+        SCHED_LABEL="$unit"; SCHED_DETAIL="$unit → $svc"
+      fi
+    done
+  done <<EOF
+$(systemctl --user list-timers --all --no-legend 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /\.timer$/) print $i }')
+EOF
+  [ -n "$best" ] || { clear_sched; return 1; }
+  LAUNCHER="$best"
+  SCHEDULER="systemd"
+  SCHED_STATUS=""
+  return 0
+}
+
+# If the user names the launcher, we still want its scheduler entry — that is where the last
+# exit code and the declared PATH live, and neither is readable from the script itself.
+find_scheduler_for_launcher() {
+  local p script
+  if [ -n "$PLIST" ]; then
+    read_plist "$PLIST" || { note "plist named on the command line could not be read: $PLIST"; return 1; }
+    SCHEDULER="launchd"; read_sched_status || true
+    return 0
+  fi
+  command -v plutil >/dev/null 2>&1 || return 1
+  for p in "$ACD_LAUNCHAGENTS_DIR"/*.plist; do
+    [ -f "$p" ] || continue
+    read_plist "$p" || continue
+    if [ "$SCHED_SCRIPT" = "$LAUNCHER" ]; then
+      SCHEDULER="launchd"; read_sched_status || true
+      return 0
+    fi
+  done
+  clear_sched
+  return 1
+}
+
+# =========================================================================================
+# Reading the launcher. A foreign chain does not use the variable names this tool grew up
+# with, so control files are found by what their VALUE looks like, then by their name — never
+# by name alone.
+# =========================================================================================
+
+# The launcher's assignments, parsed ONCE into ASSIGN_CACHE.
+#
+# Two things this had to learn the hard way. First, the right-hand side is taken to end of
+# line and unquoted afterwards, not captured with `="\([^"]*\)"`: that shortcut stops at the
+# first INNER quote, and the first inner quote is exactly where the interesting values live —
+#   PROMPT_FILE="${AGENT_PROMPT:-$(cd "$(dirname "$0")" && pwd)/session-prompt.txt}"
+# captured as `${AGENT_PROMPT:-$(cd ` — a path that resolves to nothing, silently, on the
+# single most common way of writing a launcher-relative path.
+#
+# Second, this is parsed with shell string operations and no subprocess at all. The version
+# that ran two `sed` calls per line looked identical and was: variable resolution is recursive,
+# so a 400-line launcher meant tens of thousands of forks and the tool simply never came back.
+# A diagnostic that hangs on the machine it is diagnosing has failed in the most useless way
+# available to it.
+ASSIGN_CACHE=""
+
+load_assignments() {
+  [ -n "$LAUNCHER" ] && [ -r "$LAUNCHER" ] || return 1
+  local line trimmed name rhs inner out=""
+  while IFS= read -r line; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    case "$trimmed" in \#*|'') continue ;; esac
+    # Form 1 — the defaulting idiom:  : "${NAME:=value}"
+    case "$trimmed" in
+      ': "${'*'}"'*)
+        inner="${trimmed#: \"\$\{}"; inner="${inner%%\}\"*}"
+        case "$inner" in
+          *:=*) name="${inner%%:=*}"; rhs="${inner#*:=}" ;;
+          *=*)  name="${inner%%=*}";  rhs="${inner#*=}" ;;
+          *)    continue ;;
+        esac
+        case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
+        out="$out$name	$rhs
+"
+        continue ;;
+    esac
+    # Form 2 — a plain assignment at the start of a line, with or without a declaration
+    # keyword in front of it. `readonly LOG_FILE="…"` is ordinary bash, and it used to be
+    # dropped here: the name parsed as "readonly LOG_FILE", which contains a space, so the
+    # name test rejected it. A foreign chain that declared all four of its control paths that
+    # way was answered "looks like a script, but not like an agent chain" at exit 2 — zero of
+    # the twenty-six checks ran on it. Found in exp-008 by reading chains this tool did not
+    # write; none of the suite's own fixtures used the idiom, because its author does not.
+    case "$trimmed" in
+      readonly[[:space:]]*|local[[:space:]]*|export[[:space:]]*|declare[[:space:]]*|typeset[[:space:]]*)
+        case "$trimmed" in
+          readonly*) trimmed="${trimmed#readonly}" ;;
+          local*)    trimmed="${trimmed#local}" ;;
+          export*)   trimmed="${trimmed#export}" ;;
+          declare*)  trimmed="${trimmed#declare}" ;;
+          typeset*)  trimmed="${trimmed#typeset}" ;;
+        esac
+        trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
+        # `declare -r NAME=…`, `typeset -gx NAME=…`: the flags sit between the keyword and
+        # the name. The inner test on a remaining space is what stops this looping forever on
+        # a line that is nothing but a dash.
+        while :; do
+          case "$trimmed" in
+            -*) case "$trimmed" in
+                  *[[:space:]]*) trimmed="${trimmed#*[[:space:]]}"
+                                 trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}" ;;
+                  *) break ;;
+                esac ;;
+            *) break ;;
+          esac
+        done ;;
+    esac
+    case "$trimmed" in *=*) ;; *) continue ;; esac
+    name="${trimmed%%=*}"
+    case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
+    rhs="${trimmed#*=}"
+    case "$rhs" in
+      '"'*) rhs="${rhs#\"}"; rhs="${rhs%\"*}" ;;
+      *)    rhs="${rhs%%[[:space:]]*}" ;;
+    esac
+    out="$out$name	$rhs
+"
+  done < "$LAUNCHER"
+  ASSIGN_CACHE="$out"
+}
+
+scan_assignments() {
+  [ -n "$ASSIGN_CACHE" ] || return 1
+  printf '%s' "$ASSIGN_CACHE"
+}
+
+# sched_env NAME → the value the SCHEDULER declares, which wins: `: "${VAR:=default}"` only
+# applies when the variable is unset, so an environment declared in the plist overrides the
+# launcher's default. Resolving paths without this merge reads the wrong files.
+sched_env() {
+  [ -n "$SCHED_ENV" ] || return 1
+  local rest="$SCHED_ENV" line
+  while [ -n "$rest" ]; do
+    line="${rest%%
+*}"
+    if [ "$line" = "$rest" ]; then rest=""; else rest="${rest#*
+}"; fi
+    case "$line" in "$1="*) printf '%s' "${line#*=}"; return 0 ;; esac
+  done
+  return 1
+}
+
+# No here-doc and no subprocess: variable resolution is recursive and this is its inner loop.
+# The here-doc version spawned a temporary file per lookup and took seventeen seconds on a
+# real 400-line launcher — long enough that the first live run looked like a hang.
+raw_assign() {  # NAME → last raw right-hand side found in the launcher
+  local rest="$ASSIGN_CACHE" line found=""
+  while [ -n "$rest" ]; do
+    line="${rest%%
+*}"
+    if [ "$line" = "$rest" ]; then rest=""; else rest="${rest#*
+}"; fi
+    case "$line" in "$1	"*) found="${line#*	}" ;; esac
+  done
+  [ -n "$found" ] || return 1
+  printf '%s' "$found"
+}
+
+UNRESOLVED_MARK="@@unresolved@@"
+
+# PROVISIONAL_MARK — a value this tool BUILT from a default, for a variable that neither the
+# scheduler entry nor the launcher declares. `ROOT="${NIGHTLY_AGENT_ROOT:-$HOME/…}"` resolves
+# to a real-looking path, and if the scheduler exports NIGHTLY_AGENT_ROOT — which is the whole
+# reason the idiom exists — that path is not the one the chain uses. Left unmarked, it became
+# two flat accusations on a foreign chain: "the main log does not exist at all", "the prompt
+# file does not exist", both about files the chain never had (exp-008). The mark rides inside
+# the string, so it survives the recursion, and classify_paths strips it and remembers.
+PROVISIONAL_MARK="@@provisional:"   # …followed by the variable name, then "@@", then the default
+
+expand_value() {  # $1 raw  $2 depth → value with $VARs replaced, or a marked string
+  local s="$1" depth="${2:-0}" i name val inner def pre post ldir
+  s="${s//\$\{HOME\}/$HOME}"
+  s="${s//\$HOME/$HOME}"
+  # A path written relative to the launcher's own directory. These two idioms are how nearly
+  # every launcher finds the helper scripts next to it, and neither survives naive expansion.
+  case "$s" in
+    *'$(cd '*|*'$(dirname '*)
+      ldir=$(cd "$(dirname "$LAUNCHER")" 2>/dev/null && pwd) || ldir=""
+      if [ -n "$ldir" ]; then
+        s=$(printf '%s' "$s" | sed -e 's|\$(cd .*pwd)|'"$ldir"'|' -e 's|\$(dirname "\$0")|'"$ldir"'|g')
+      fi ;;
+  esac
+  [ "$depth" -ge 4 ] && { printf '%s' "$s"; return 0; }
+  # ${NAME:-default}, ${NAME:=default}, ${NAME-default}: the scheduler's environment wins if
+  # it declares NAME; otherwise the default in the launcher is what the chain actually runs
+  # with. Rebuilt by prefix/suffix rather than by pattern replacement, so a default containing
+  # glob characters cannot silently eat the rest of the string.
+  for i in 1 2 3 4 5 6 7 8; do
+    case "$s" in *'${'*'}'*) ;; *) break ;; esac
+    inner="${s#*\$\{}"; inner="${inner%%\}*}"
+    pre="${s%%\$\{*}"; post="${s#*\}}"
+    case "$inner" in
+      *[:=-]*)
+        name="${inner%%[:=-]*}"
+        def="${inner#"$name"}"; def="${def#:}"; def="${def#[-=]}"
+        val=$(sched_env "$name") || val=""
+        if [ -z "$val" ]; then
+          # Falling back to the literal default. If the launcher declares NAME somewhere, that
+          # default is what the chain really runs with and the value is solid. If nothing this
+          # tool can read declares it, the value is a guess about someone else's environment.
+          if raw_assign "$name" >/dev/null 2>&1; then val="$def"
+          else val="$PROVISIONAL_MARK$name@@$def"; fi
+        fi ;;
+      *)
+        name="$inner"
+        val=$(resolve_var "$name" $((depth + 1))) || val=""
+        [ -n "$val" ] || val="$UNRESOLVED_MARK" ;;
+    esac
+    s="$pre$val$post"
+  done
+  # Plain $NAME references. Walked character by character in the shell rather than extracted
+  # with `sed`: this is the inner loop of a recursive resolution, and one fork per iteration
+  # here is most of the seventeen seconds the first live run took.
+  local c rest
+  for i in 1 2 3 4 5 6; do
+    case "$s" in *'$'*) ;; *) break ;; esac
+    pre="${s%%\$*}"; rest="${s#*\$}"
+    name=""
+    while [ -n "$rest" ]; do
+      c="${rest%"${rest#?}"}"
+      case "$c" in
+        [A-Za-z0-9_]) name="$name$c"; rest="${rest#?}" ;;
+        *) break ;;
+      esac
+    done
+    # A `$` that is not a variable reference ($(, $$, $?) — nothing more to expand here.
+    [ -n "$name" ] || break
+    val=$(resolve_var "$name" $((depth + 1))) || val=""
+    [ -n "$val" ] || val="$UNRESOLVED_MARK"
+    s="$pre$val$rest"
+  done
+  printf '%s' "$s"
+}
+
+resolve_var() {  # $1 name  $2 depth → resolved value, or failure
+  local name="$1" depth="${2:-0}" raw
+  [ "$depth" -ge 5 ] && return 1
+  raw=$(sched_env "$name") || raw=""
+  [ -n "$raw" ] || raw=$(raw_assign "$name") || raw=""
+  [ -n "$raw" ] || return 1
+  expand_value "$raw" "$depth"
+}
+
+# The control files, found by kind rather than by name. Each holds a resolved absolute path
+# or stays empty, in which case every check that needs it says UNKNOWN and says why.
+P_LOG=""; P_LOCK=""; P_WAKEUP=""; P_MARKER=""; P_ERR=""; P_PROMPT=""; P_REPO=""
+V_LOG=""; V_LOCK=""; V_WAKEUP=""; V_ERR=""; V_PROMPT=""; V_MARKER=""  # the variable names they came from
+# …and, per path, the variable whose value this tool had to guess (empty = the path is solid).
+G_LOG=""; G_LOCK=""; G_WAKEUP=""; G_ERR=""; G_PROMPT=""
+AGENT_BIN=""
+STATE_DIR=""
+
+classify_paths() {
+  local name raw val kind vtail vdir
+  while IFS='	' read -r name raw; do
+    [ -n "$name" ] || continue
+    case "$raw" in *[!\ ]*) ;; *) continue ;; esac
+    # Cheap pre-filter on the UNEXPANDED text, and it changes no verdict: these are exactly
+    # the keywords the classification below decides on, so anything dropped here would have
+    # been dropped there. It exists because expansion is recursive — every assignment kept is
+    # a resolution walk, and a launcher with hundreds of unrelated variables would spend all
+    # its time resolving values no check will ever read.
+    case "$name$raw" in
+      *[Ll][Oo][Gg]*|*[Ll][Oo][Cc][Kk]*|*[Ww][Aa][Kk][Ee]*|*[Nn][Ee][Xx][Tt]*|*[Dd][Uu][Ee]*) ;;
+      *[Pp][Rr][Oo][Mm][Pp][Tt]*|*[Ee][Rr][Rr]*|*[Mm][Aa][Rr][Kk][Ee][Rr]*|*[Ll][Aa][Ss][Tt]*) ;;
+      *[Rr][Ee][Pp][Oo]*|*WORKDIR*|*PROJECT*|*CMD*|*BIN*|*CLI*) ;;
+      *) continue ;;
+    esac
+    val=$(expand_value "$raw" 0)
+    case "$val" in *"$UNRESOLVED_MARK"*) continue ;; esac
+    # Strip the provisional marks back out, remembering the first variable this tool had to
+    # guess. The value is still the best guess available and every check may READ it; what
+    # changes is that no check may build an ACCUSATION on its absence from disk.
+    local prov="" pre rest pname post
+    while :; do
+      case "$val" in
+        *"$PROVISIONAL_MARK"*)
+          pre="${val%%"$PROVISIONAL_MARK"*}"; rest="${val#*"$PROVISIONAL_MARK"}"
+          pname="${rest%%@@*}"; post="${rest#*@@}"
+          [ -n "$prov" ] || prov="$pname"
+          val="$pre$post" ;;
+        *) break ;;
+      esac
+    done
+    # The agent binary is not a path; it is caught by name before the path filter.
+    case "$name" in
+      *AGENT_CMD*|*AGENT_BIN*|*CLI*) [ -n "$AGENT_BIN" ] || AGENT_BIN="$val" ;;
+    esac
+    case "$val" in */*) ;; *) continue ;; esac
+    # Classification reads the variable NAME and the last two segments of its value — not the
+    # whole path. It used to read the whole path, and every ancestor directory voted: a chain
+    # living under ~/Nextcloud/ has "next" in every single one of its paths, so every control
+    # file it declares was classified as the wakeup file. Found by naming a test fixture
+    # "overdue" and watching the state directory resolve one level too high, with the log lost
+    # entirely. Two segments, because `…/logs/output` should still read as a log.
+    vtail="${val##*/}"; vdir="${val%/*}"; vtail="${vdir##*/}/$vtail"
+    kind=""
+    case "$name$vtail" in
+      *[Ee][Rr][Rr]*)                              kind="err" ;;
+    esac
+    case "$name$vtail" in
+      *[Ll][Oo][Cc][Kk]*)                          kind="lock" ;;
+    esac
+    case "$name$vtail" in
+      *[Ww][Aa][Kk][Ee]*|*[Nn][Ee][Xx][Tt]*|*[Dd][Uu][Ee]*) kind="wakeup" ;;
+    esac
+    case "$name$vtail" in
+      *[Pp][Rr][Oo][Mm][Pp][Tt]*)                  kind="prompt" ;;
+    esac
+    case "$name" in
+      LOG|*_LOG|LOGFILE|*_LOGFILE)                 kind="log" ;;
+    esac
+    case "$name$vtail" in
+      *[Mm][Aa][Rr][Kk][Ee][Rr]*|*[Ll][Aa][Ss][Tt]*) [ -n "$kind" ] || kind="marker" ;;
+    esac
+    case "$name" in
+      *REPO*|*WORKDIR*|*PROJECT*)                  kind="repo" ;;
+    esac
+    [ -n "$kind" ] || case "$val" in *.log) kind="log" ;; esac
+    case "$kind" in
+      log)    [ -n "$P_LOG" ]    || { P_LOG="$val";    V_LOG="$name";    G_LOG="$prov"; } ;;
+      lock)   [ -n "$P_LOCK" ]   || { P_LOCK="$val";   V_LOCK="$name";   G_LOCK="$prov"; } ;;
+      wakeup) [ -n "$P_WAKEUP" ] || { P_WAKEUP="$val"; V_WAKEUP="$name"; G_WAKEUP="$prov"; } ;;
+      marker) [ -n "$P_MARKER" ] || { P_MARKER="$val"; V_MARKER="$name"; } ;;
+      err)    [ -n "$P_ERR" ]    || { P_ERR="$val";    V_ERR="$name";    G_ERR="$prov"; } ;;
+      prompt) [ -n "$P_PROMPT" ] || { P_PROMPT="$val"; V_PROMPT="$name"; G_PROMPT="$prov"; } ;;
+      repo)   [ -n "$P_REPO" ]   || P_REPO="$val" ;;
+    esac
+  done <<EOF
+$(scan_assignments)
+EOF
+  # The state directory is where the control files live — deduced, never assumed.
+  if   [ -n "$P_LOG" ];  then STATE_DIR=$(dirname "$P_LOG")
+  elif [ -n "$P_LOCK" ]; then STATE_DIR=$(dirname "$P_LOCK")
+  elif [ -n "$P_WAKEUP" ]; then STATE_DIR=$(dirname "$P_WAKEUP")
+  fi
+}
+
+# src_line PATTERN → "line_number:the line", first match, comments excluded. Static findings
+# are worthless without the line the user can go and read for themselves.
+src_line() {
+  [ -n "$LAUNCHER" ] && [ -r "$LAUNCHER" ] || return 1
+  local out
+  # The result is captured and TESTED rather than piped straight out. A pipeline ending in
+  # `head` exits 0 whether or not grep matched anything, so `src_line pattern && found=yes`
+  # was true for every pattern, always: the checks that ask "does this launcher wrap its
+  # agent in caffeinate?" or "does it create its lock with mkdir?" were answering yes without
+  # looking. Found by the one test in this suite that expected a NEGATIVE match.
+  # WHOLE-LINE comments were dropped and trailing ones were not — so `LOCK=/tmp/x  # was:
+  # mkdir "$LOCK"` armed L6's "the launcher creates this with mkdir", and a `# no caffeinate
+  # here` armed L10's "the launcher does wrap the agent in a keep-awake call". This file
+  # calls that removal an invariant ("the most insulting false positive available"); it was
+  # held by load_code and by nothing else, while THREE LIVE checks came through here.
+  # The stripped code is reused rather than re-derived: one comment parser, not two.
+  local body
+  [ -n "$CODE_CACHE" ] || load_code || return 1
+  body=$(printf '%s\n' "$CODE_CACHE" | sed 's/^[0-9]*://')
+  # grep -n over the stripped body: load_code emits one entry per source line, so the
+  # numbering it hands back is still the launcher's own. The pattern must keep matching the
+  # CODE alone — callers anchor with ^ — which is why the "N:" prefix comes off first.
+  out=$(printf '%s\n' "$body" | grep -nE "$1" 2>/dev/null | head -n 1)
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+# =========================================================================================
+# The live checks. Each one either finds a fact or says what it was missing.
+# =========================================================================================
+
+# L1 — the last exit code of the probe, straight from the scheduler registry. Exact, free,
+# needs no privilege, and it is what tells a waiting chain apart from a dying one.
+check_L1_exit_status() {
+  if [ -z "$SCHED_STATUS" ]; then
+    finding UNKNOWN L1 live "last probe exit code not readable" \
+      "no scheduler entry was matched to this launcher; run with --plist, or check that the chain is loaded"
+    return
+  fi
+  case "$SCHED_STATUS" in
+    0) finding GUARDED L1 live "the probe's last run exited 0" \
+         "${SCHEDULER}: ${SCHED_LABEL:-?} → status 0" ;;
+    ''|*[!0-9-]*) finding UNKNOWN L1 live "last probe exit code not a number" \
+         "${SCHEDULER}: ${SCHED_LABEL:-?} → status '$SCHED_STATUS'" ;;
+    *)
+      local why=""
+      case "$SCHED_STATUS" in
+        126) why=" — 126 is 'found but not executable': the launcher lost its +x bit" ;;
+        127) why=" — 127 is 'command not found': the scheduler's PATH does not resolve the launcher or the agent binary" ;;
+        2)   why=" — 2 is usually a shell syntax error in the launcher: bash exits before writing a single log line" ;;
+        1)   why=" — 1 is the launcher's own refusal; its error file is the only place it can have said why" ;;
+      esac
+      finding EXPOSED L1 live "the probe's last run exited $SCHED_STATUS" \
+        "${SCHEDULER}: ${SCHED_LABEL:-?} → status $SCHED_STATUS$why" \
+        "the scheduler will keep starting it on schedule, forever, with nothing in any log" ;;
+  esac
+}
+
+# L2 — registered, and nothing has run. A quiet chain is NOT a finding on its own: a correct
+# agent that rescheduled itself five days out leaves a log untouched for five days, on
+# purpose. This only becomes EXPOSED with a real death signal beside it (L1 ≠ 0).
+check_L2_silence() {
+  if [ -z "$P_LOG" ]; then
+    finding UNKNOWN L2 live "no main log path found in the launcher" \
+      "looked for an assignment whose name or value says 'log'; add the launcher path as an argument if this is wrong"
+    return
+  fi
+  if [ ! -e "$P_LOG" ]; then
+    # A chain installed ten minutes ago, correctly, whose first wakeup is still ahead of it has
+    # no log either — and calling that EXPOSED is crying wolf on the one chain most likely to be
+    # looked at with this tool: a fresh one. Measured on a real install of a reference launcher,
+    # at rest, first wakeup an hour out: it was the finding that broke the no-false-positive
+    # criterion. A due date in the FUTURE with a healthy probe means "has not run YET".
+    local due=""
+    if [ -n "$P_WAKEUP" ] && [ -r "$P_WAKEUP" ]; then
+      due=$(head -c 64 "$P_WAKEUP" 2>/dev/null | tr -d '\n\r ')
+      case "$due" in ''|*[!0-9]*) due="" ;; esac
+    fi
+    # `${SCHED_STATUS:-0}` was the whole test, and it read "no scheduler entry was matched"
+    # as "the probe exited 0" — then PRINTED that as the evidence, in a report whose L1 said
+    # "last probe exit code not readable" four lines above. The protection this branch exists
+    # for (a correct chain, installed minutes ago, must not be called dead) is kept; what is
+    # dropped is the claim, because the value it rests on was never read.
+    if [ -n "$due" ] && [ "$due" -gt "$NOW" ] && { [ -z "$SCHED_STATUS" ] || [ "$SCHED_STATUS" = "0" ]; }; then
+      local why
+      if [ -n "$SCHED_STATUS" ]; then
+        why="the next wakeup is still ahead and the probe's last run exited 0: this is a chain waiting, not a chain dead"
+      else
+        why="the next wakeup is still ahead, so nothing was due yet — and no probe exit code was readable at all (see L1), so this is not a measurement that the chain is alive"
+      fi
+      finding UNKNOWN L2 live "no session has run yet, and none is due" \
+        "$P_LOG — declared by \$$V_LOG, not created yet" \
+        "$why" \
+        "come back after the first due session; if the log is still absent then, that IS the failure"
+      return
+    fi
+    if [ -n "$G_LOG" ]; then
+      finding UNKNOWN L2 live "the main log is not where this tool guessed, and the guess was not solid" \
+        "$P_LOG — built from \$$V_LOG, whose value falls back on \$$G_LOG" \
+        "nothing readable here declares \$$G_LOG: the scheduler is expected to supply it, and its real value is another path" \
+        "hand the scheduler entry over (--plist) and this becomes a measurement instead of a guess"
+      return
+    fi
+    finding EXPOSED L2 live "the main log does not exist at all" \
+      "$P_LOG — declared by \$$V_LOG, never created" \
+      "either no session has ever started, or the launcher and the scheduler disagree on the state directory"
+    return
+  fi
+  local m age
+  m=$(mtime "$P_LOG") || { finding UNKNOWN L2 live "main log unreadable" "$P_LOG"; return; }
+  age=$((NOW - m))
+  if [ "$age" -lt 172800 ]; then
+    finding GUARDED L2 live "the main log was written recently" "$P_LOG, last written $(ago "$age")"
+  elif [ -n "$SCHED_STATUS" ] && [ "$SCHED_STATUS" != "0" ]; then
+    finding EXPOSED L2 live "log silent $((age / 86400)) days, and the probe is failing" \
+      "$P_LOG, last written $(ago "$age")" \
+      "with a non-zero probe status (see L1) the silence is a death, not a wait"
+  else
+    finding UNKNOWN L2 live "log silent for $((age / 86400)) days" \
+      "$P_LOG, last written $(ago "$age")" \
+      "silence alone proves nothing: a chain that rescheduled itself far out looks exactly like a dead one"
+  fi
+}
+
+# L3 — the probe's error file, and whether anything drains it. Comparing its mtime with the
+# log's is exact: if a session ran AFTER the error was written and the file is still full,
+# nothing is reading it. A syntax error in the launcher lands here and nowhere else.
+check_L3_err_file() {
+  local path="${SCHED_ERRPATH:-$P_ERR}"
+  if [ -z "$path" ]; then
+    finding UNKNOWN L3 live "no probe error file is declared anywhere" \
+      "neither the scheduler entry nor the launcher names one — a fatal error in the launcher has nowhere to land"
+    return
+  fi
+  if [ ! -e "$path" ]; then
+    # This used to be GUARDED, and it was the clearest counter-example to this tool's own
+    # rule. An error file that is absent because the probe drains it and an error file that is
+    # absent because the probe has NEVER RUN are the same bytes on disk. Nothing here measures
+    # a protection, so nothing here may claim one.
+    finding UNKNOWN L3 live "probe error file declared, and absent" "$path" \
+      "absent means either 'drained' or 'never written to' — nothing on disk tells the two apart" \
+      "L1 and L2 are what say whether the probe has ever run"
+    return
+  fi
+  local sz m
+  sz=$(fsize "$path") || sz=""
+  if [ -z "$sz" ]; then
+    finding UNKNOWN L3 live "probe error file not readable as this user" "$path"
+    return
+  fi
+  if [ "$sz" -eq 0 ]; then
+    finding GUARDED L3 live "probe error file exists and is empty" "$path"
+    return
+  fi
+  m=$(mtime "$path") || m=""
+  local first; first=$(head -n 1 "$path" 2>/dev/null)
+  if [ -n "$m" ] && [ -n "$P_LOG" ] && [ -e "$P_LOG" ]; then
+    local lm; lm=$(mtime "$P_LOG") || lm=""
+    if [ -n "$lm" ] && [ "$lm" -gt "$m" ]; then
+      finding EXPOSED L3 live "probe errors nobody drained: $(human_size "$sz")" \
+        "$path, last written $(ago "$((NOW - m))")" \
+        "a session ran after that and the file is still full — nothing reads it" \
+        "first line: $first"
+      return
+    fi
+  fi
+  finding UNKNOWN L3 live "probe error file is not empty: $(human_size "$sz")" \
+    "$path, last written $(ago "$((NOW - ${m:-$NOW}))")" \
+    "cannot tell a not-yet-drained file from an undrained one without a later session" \
+    "first line: $first"
+}
+
+# L4 — the wakeup file present but unreadable. An ABSENT file is deliberate silence (it is
+# also how you stop a chain cleanly). A file that is PRESENT and empty is a broken
+# instrument, and it is exactly what `date … > file` leaves behind when date fails: the
+# redirection truncates before the command runs.
+check_L4_wakeup_shape() {
+  if [ -z "$P_WAKEUP" ]; then
+    finding UNKNOWN L4 live "no wakeup file path found in the launcher" \
+      "looked for an assignment whose name or value says wake/next/due"
+    return
+  fi
+  if [ ! -e "$P_WAKEUP" ]; then
+    finding UNKNOWN L4 live "no wakeup file on disk" \
+      "$P_WAKEUP — absent is also how a chain is stopped on purpose, so this is not a verdict" \
+      "if you did not stop it, nothing will ever start it again"
+    return
+  fi
+  # Unreadable is not empty. Both make `head` return nothing, and the old code called both
+  # "0 bytes of content" — an accusation with a false proof attached, which is the one thing
+  # a finding must never be.
+  if [ ! -r "$P_WAKEUP" ]; then
+    finding UNKNOWN L4 live "the wakeup file cannot be read as this user" \
+      "$P_WAKEUP exists but is not readable — its contents were never seen" \
+      "run the tool as the user the scheduler runs the chain as"
+    return
+  fi
+  local content
+  content=$(head -c 64 "$P_WAKEUP" 2>/dev/null | tr -d '\n\r ')
+  if [ -z "$content" ]; then
+    finding EXPOSED L4 live "the wakeup file is present and EMPTY" \
+      "$P_WAKEUP — 0 bytes of content" \
+      "this is what a truncating redirection leaves when the command that should fill it fails" \
+      "if the launcher treats empty as absent, every tick from now on exits in silence"
+    return
+  fi
+  case "$content" in
+    *[!0-9]*)
+      # "Not a bare integer" was treated as a defect on its own, and that is this tool's own
+      # convention mistaken for a law. A foreign chain writing three `key=value` lines — a
+      # documented format its systemd timer re-triggers from, that the launcher never parses —
+      # was told it "stops for good without a line" (exp-008). The claim only holds if
+      # something in THIS launcher reads the file and expects a number; so that is now what
+      # decides the verdict, and the content alone never does.
+      local w r=""
+      if [ -n "$V_WAKEUP" ]; then
+        w=$(vref "$V_WAKEUP")
+        # No bare `\.` alternative for dot-sourcing: an unanchored dot in an ERE matches any
+        # character, so `mv "$DUE_FILE.tmp" "$DUE_FILE"` — a WRITE — read as a read.
+        r=$(code_first_reading "(cat|head|read|source)[[:space:]][^;|&]*\"?$w|<[[:space:]]*\"?$w") || r=""
+      fi
+      if [ -z "$r" ]; then
+        finding UNKNOWN L4 live "the wakeup file is not a bare number, and nothing here reads it" \
+          "$P_WAKEUP contains '$content'" \
+          "no read of \$$V_WAKEUP was found in ${LAUNCHER##*/}: on this chain the file records the next wakeup, it does not cause it" \
+          "if something else consumes it — a helper, the scheduler itself — check by hand that the format is the one it expects"
+        return
+      fi
+      case "${r#*:}" in
+        *grep*|*awk*|*sed*|*cut*|*source*|*IFS=*|*". \""*)
+          finding GUARDED L4 live "the wakeup file is structured, and the launcher parses it" \
+            "$P_WAKEUP contains '$content'" "$(ev "$r")"
+          return ;;
+      esac
+      finding EXPOSED L4 live "the wakeup file is read as a number and is not one" \
+        "$P_WAKEUP contains '$content'" \
+        "$(ev "$r")" \
+        "a launcher that parses this as 0, or dies on it under set -u, stops for good without a line" ;;
+    *) finding GUARDED L4 live "the wakeup file holds a well-formed epoch" "$P_WAKEUP → $content" ;;
+  esac
+}
+
+# L5 — shape says nothing about RANGE. Thirteen digits is an epoch in milliseconds: an
+# irreproachable run of digits that schedules the next session several centuries out.
+check_L5_wakeup_range() {
+  if [ -z "$P_WAKEUP" ]; then
+    finding UNKNOWN L5 live "no wakeup file path found in the launcher" \
+      "there is no value to range-check; L4 says the same thing about its shape"
+    return
+  fi
+  if [ ! -e "$P_WAKEUP" ]; then
+    finding UNKNOWN L5 live "no wakeup file on disk to range-check" "$P_WAKEUP"
+    return
+  fi
+  local due
+  due=$(head -c 64 "$P_WAKEUP" 2>/dev/null | tr -d '\n\r ')
+  case "$due" in ''|*[!0-9]*)
+    finding UNKNOWN L5 live "the wakeup value is not a number, so it has no range" \
+      "$P_WAKEUP → '$due'" "L4 carries the verdict on its shape"
+    return ;;
+  esac
+  local delta=$((due - NOW))
+  if [ "$delta" -gt 2592000 ]; then
+    local when; when=$(date -r "$due" '+%Y-%m-%d' 2>/dev/null || date -d "@$due" '+%Y-%m-%d' 2>/dev/null || echo '?')
+    local extra=""
+    case "${#due}" in 13) extra="thirteen digits: this is milliseconds, not seconds" ;; esac
+    finding EXPOSED L5 live "next wakeup is $((delta / 86400)) days out" \
+      "$P_WAKEUP → $due, i.e. $when" "$extra" \
+      "nothing between now and then will start a session"
+  # OVERDUE_GRACE — how long a due wakeup may sit on disk before its lateness means anything.
+  # A scheduler that ticks every few minutes leaves a just-due value there all the time, so a
+  # small overdue is a chain working, not a chain dead. The cutoff used to be TWO DAYS, and
+  # everything under it was labelled "next wakeup is within a sane range" — including a
+  # foreign chain whose own evidence line, printed directly under that label, read "overdue by
+  # 28 h" (exp-008). Verdict and proof contradicting each other inside one finding is worse
+  # than either being wrong alone: it tells the reader the tool is not reading what it prints.
+  elif [ "$delta" -lt -3600 ]; then
+    if [ -n "$SCHED_STATUS" ] && [ "$SCHED_STATUS" != "0" ]; then
+      finding EXPOSED L5 live "wakeup overdue by $(ago "$(( -delta ))" | sed 's/ ago$//'), probe failing" \
+        "$P_WAKEUP → $due" "the probe's last exit code was $SCHED_STATUS (see L1): it is due and it cannot run"
+    else
+      finding UNKNOWN L5 live "wakeup overdue by $(ago "$(( -delta ))" | sed 's/ ago$//')" \
+        "$P_WAKEUP → $due" \
+        "a guard may be postponing it on purpose (closed window, human at the keyboard, lid shut) — that is a design, not a fault" \
+        "if no such guard exists in your launcher, this is the chain having stopped: read L1 and L2 next"
+    fi
+  else
+    if [ "$delta" -ge 0 ]; then
+      finding GUARDED L5 live "next wakeup is ahead, within a sane range" "$P_WAKEUP → $due, due in $(ago "$delta" | sed 's/ ago$//')"
+    else
+      finding GUARDED L5 live "next wakeup has just come due" \
+        "$P_WAKEUP → $due, overdue by $(ago "$(( -delta ))" | sed 's/ ago$//')" \
+        "under the hour: the scheduler has simply not ticked yet"
+    fi
+  fi
+}
+
+# L6 — the lock path has the wrong SHAPE. A plain file where the launcher does `mkdir` makes
+# that mkdir fail at every tick, forever, without a word. Composite: what shape is expected
+# is read from the launcher's source, not assumed.
+check_L6_lock_shape() {
+  if [ -z "$P_LOCK" ]; then
+    finding UNKNOWN L6 live "no lock path found in the launcher" "looked for an assignment whose name or value says 'lock'"
+    return
+  fi
+  local expects_dir="" ln
+  ln=$(src_line "mkdir[^|&;]*\\\$\{?$V_LOCK") && expects_dir="yes"
+  [ -n "$expects_dir" ] || { src_line "mkdir[^|&;]*$(basename "$P_LOCK")" >/dev/null 2>&1 && expects_dir="yes"; }
+  if [ ! -e "$P_LOCK" ]; then
+    # Was GUARDED. But this check judges the SHAPE of the lock (file where the launcher does
+    # `mkdir`, or the reverse), and a lock that does not exist has no shape. The fact that
+    # nothing is holding the chain belongs to L7, which measures exactly that.
+    finding UNKNOWN L6 live "no lock on disk, so its shape cannot be judged" \
+      "$P_LOCK — the mismatch this check looks for only appears once the file exists" \
+      "L7 carries the verdict on whether anything is holding the chain"
+    return
+  fi
+  if [ -d "$P_LOCK" ]; then
+    if [ -n "$expects_dir" ]; then
+      finding GUARDED L6 live "the lock is a directory, as the launcher expects" "$P_LOCK ${ln:+(${LAUNCHER##*/}:${ln%%:*})}"
+    else
+      finding UNKNOWN L6 live "the lock is a directory; the launcher's intent is unclear" "$P_LOCK"
+    fi
+  else
+    if [ -n "$expects_dir" ]; then
+      finding EXPOSED L6 live "the lock is a plain FILE where a directory is expected" \
+        "$P_LOCK is not a directory" \
+        "${LAUNCHER##*/}:${ln%%:*} creates it with mkdir — that call now fails at every tick, forever, silently"
+    else
+      finding UNKNOWN L6 live "the lock is a plain file" "$P_LOCK — cannot tell whether that is the intended shape"
+    fi
+  fi
+}
+
+# L7 — a stale lock whose owner is dead. Age alone is not enough and never was: the pid is
+# what tells debris apart from a long, legitimate session.
+check_L7_stale_lock() {
+  if [ -z "$P_LOCK" ]; then
+    finding UNKNOWN L7 live "no lock path found in the launcher" \
+      "nothing to check for staleness; L6 says the same thing about its shape"
+    return
+  fi
+  if [ ! -e "$P_LOCK" ]; then
+    # Unlike L6 (which judges the SHAPE of a lock that must exist to have one) and L8 (which
+    # times a session that must exist to be timed), the absence of a lock is a full answer to
+    # this check's question: there is no stale lock, and that is measured, not assumed.
+    finding GUARDED L7 live "no lock on disk, so none can be stale" \
+      "$P_LOCK — absent, so nothing is holding the chain shut"
+    return
+  fi
+  local pid="" m age
+  if [ -d "$P_LOCK" ]; then
+    pid=$(cat "$P_LOCK/pid" 2>/dev/null | tr -d '\n\r ')
+  else
+    pid=$(head -c 32 "$P_LOCK" 2>/dev/null | tr -d '\n\r ')
+  fi
+  case "$pid" in *[!0-9]*) pid="" ;; esac
+  m=$(mtime "$P_LOCK") || m=""
+  if [ -n "$m" ]; then age=$((NOW - m)); else age=""; fi
+  if [ -z "$pid" ]; then
+    finding UNKNOWN L7 live "the lock names no owner" \
+      "$P_LOCK${age:+, held for $(ago "$age")}" \
+      "without a pid, only age can release it — and age cannot tell a long session from debris"
+    return
+  fi
+  if pid_alive "$pid"; then
+    finding GUARDED L7 live "the lock names its owner and the owner is alive" "$P_LOCK → pid $pid (running)"
+  else
+    finding EXPOSED L7 live "the lock is held by a DEAD pid" \
+      "$P_LOCK → pid $pid, no such process${age:+, held for $(ago "$age")}" \
+      "until something releases it, every tick sees a held lock and exits"
+  fi
+}
+
+# L8 — a session that has been running far too long. A hung agent is worse than a crashed
+# one: the lock stays owned by a LIVE pid, so nothing declares it stale, the scheduler starts
+# nothing, and the wakeup is never consumed. The chain is frozen with no error anywhere.
+check_L8_long_session() {
+  if [ -z "$P_LOCK" ] || [ ! -e "$P_LOCK" ]; then
+    finding UNKNOWN L8 live "no session is running, so none can be overrunning" \
+      "${P_LOCK:-no lock path found in the launcher} — a session's duration is only readable while it holds the lock"
+    return
+  fi
+  local pid=""
+  if [ -d "$P_LOCK" ]; then pid=$(cat "$P_LOCK/pid" 2>/dev/null | tr -d '\n\r '); else pid=$(head -c 32 "$P_LOCK" 2>/dev/null | tr -d '\n\r '); fi
+  case "$pid" in ''|*[!0-9]*)
+    finding UNKNOWN L8 live "the lock names no usable owner, so no runtime can be read" \
+      "$P_LOCK${pid:+ contains '$pid'}" "L7 carries the verdict on an unowned lock"
+    return ;;
+  esac
+  if ! pid_alive "$pid"; then
+    finding UNKNOWN L8 live "the lock's owner is not running, so there is no runtime to measure" \
+      "$P_LOCK → pid $pid, no such process" "L7 carries the verdict on a dead owner"
+    return
+  fi
+  local et secs limit src
+  et=$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ')
+  secs=$(etime_secs "$et") || {
+    finding UNKNOWN L8 live "cannot read how long the session has been running" "ps -o etime= returned '$et'"
+    return
+  }
+  limit=$(resolve_var TIMEOUT 0) || limit=""
+  [ -n "$limit" ] || limit=$(resolve_var AGENT_TIMEOUT 0) || limit=""
+  case "$limit" in ''|*[!0-9]*) limit=14400; src="no timeout setting found in the launcher; using 4 h" ;;
+                   *) src="AGENT_TIMEOUT=$limit from the launcher" ;;
+  esac
+  if [ "$secs" -gt "$limit" ]; then
+    finding EXPOSED L8 live "a session has been running for $(ago "$secs" | sed 's/ ago//')" \
+      "$P_LOCK → pid $pid, elapsed $et" "$src" \
+      "past this point the lock, the wakeup and the scheduler are all doing exactly what they should — and nothing will move"
+  else
+    finding GUARDED L8 live "a session is running, within its time budget" "pid $pid, elapsed $et, budget ${limit}s"
+  fi
+}
+
+# L9 — a script the chain invokes DIRECTLY (not through `bash …`) without its +x bit. Exit
+# 126, no wakeup written, chain finished after one session.
+check_L9_exec_bit() {
+  # One check, one verdict. This function used to emit a finding for the launcher AND another
+  # for a helper script, so the report could carry 27 lines for 26 checks. It now collects both
+  # and prints the WORST — a missing +x bit anywhere in the chain is the same failure (exit 126)
+  # and deserves one line, not a split verdict the reader has to reconcile.
+  local dir found=0 target line n rest
+  local bad_path="" bad_why="" good_path=""
+  dir=$(cd "$(dirname "$LAUNCHER")" 2>/dev/null && pwd) || dir=$(dirname "$LAUNCHER")
+  # The launcher itself, when the scheduler runs it without an interpreter.
+  if [ -n "$SCHED_PROGARGS" ]; then
+    local first; first=$(printf '%s\n' "$SCHED_PROGARGS" | head -n 1)
+    if [ -n "$first" ] && ! is_interpreter "$first"; then
+      found=1
+      if [ -x "$LAUNCHER" ]; then
+        good_path="$LAUNCHER (the launcher, run directly by the scheduler)"
+      else
+        bad_path="$LAUNCHER"
+        bad_why="the scheduler runs it directly: it will report 126 at every tick and no session will ever start"
+      fi
+    fi
+  fi
+  # Helper scripts invoked BY PATH: `bash x.sh` and `. x.sh` do not need the +x bit, `"$DIR/x.sh"`
+  # does. A path written relative to the launcher's own directory — the three idioms below —
+  # is resolved against that directory, because that is what the shell would do.
+  while IFS= read -r line; do
+    n="${line%%:*}"; rest="${line#*:}"
+    rest=$(printf '%s' "$rest" | sed \
+      -e 's|\${SCRIPT_DIR[^}]*}|'"$dir"'|g' \
+      -e 's|\$SCRIPT_DIR|'"$dir"'|g' \
+      -e 's|\$(dirname "\$0")|'"$dir"'|g' \
+      -e 's|\$(cd [^)]*)|'"$dir"'|g' 2>/dev/null)
+    target="${rest%%;*}"; target="${target%%&*}"
+    target="${target#"${target%%[![:space:]]*}"}"      # left-trim
+    target="${target%%[[:space:]]*}"
+    target="${target%\"}"; target="${target#\"}"
+    case "$target" in ''|-*) continue ;; esac
+    target=$(expand_value "$target" 0)
+    case "$target" in *"$UNRESOLVED_MARK"*|*'$'*|*'('*) continue ;; esac
+    case "$target" in /*) ;; *) continue ;; esac
+    [ -f "$target" ] || continue
+    found=1
+    if [ -x "$target" ]; then
+      [ -n "$good_path" ] || good_path="$target (${LAUNCHER##*/}:$n)"
+    elif [ -z "$bad_path" ]; then
+      bad_path="$target (${LAUNCHER##*/}:$n)"
+      bad_why="that call exits 126; whether the chain survives depends entirely on how the launcher reads that code"
+    fi
+    break
+  done <<EOF
+$(grep -nE '^[[:space:]]*"?[$/]' "$LAUNCHER" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' | head -n 40)
+EOF
+  if [ -n "$bad_path" ]; then
+    finding EXPOSED L9 live "something the chain runs directly has no +x bit" "$bad_path" "$bad_why"
+  elif [ -n "$good_path" ]; then
+    finding GUARDED L9 live "what the chain runs directly is executable" "$good_path"
+  else
+    finding UNKNOWN L9 live "no directly-invoked script found to check" \
+      "everything this launcher runs seems to go through an interpreter, which does not need the +x bit"
+  fi
+}
+
+# L10 — the machine sleeps during the hours the chain is supposed to work. A session launched
+# into a maintenance-sleep cycle runs in twenty-second slices for hours and produces nothing.
+pmset_log() {
+  if [ -n "$ACD_PMSET_LOG" ] && [ -r "$ACD_PMSET_LOG" ]; then
+    cat "$ACD_PMSET_LOG" 2>/dev/null
+  else
+    command -v pmset >/dev/null 2>&1 && pmset -g log 2>/dev/null
+  fi
+}
+
+check_L10_sleep() {
+  local cutoff start end n
+  local win_src="declared by the launcher"
+  start=$(resolve_var WEEKDAY_CLOSED_END 0) || start=""
+  end=$(resolve_var WEEKDAY_CLOSED_START 0) || end=""
+  # Each bound on its own, and each inside 0-23. The test used to be run on the CONCATENATION
+  # of the two: a launcher declaring only WEEKDAY_CLOSED_START=19 gave start="" end="19", the
+  # concatenation "19" passed as all-digits, and the report printed a window "between :00 and
+  # 19:00 (declared by the launcher)". A four-digit HHMM value passed too, and no hour on
+  # earth satisfies `h >= 2200` — so the count came back 0 and L10 said GUARDED about a
+  # window that cannot contain anything.
+  case "$start" in ''|*[!0-9]*) start="" ;; esac
+  case "$end" in ''|*[!0-9]*) end="" ;; esac
+  if [ -z "$start" ] || [ -z "$end" ] || [ "$start" -gt 23 ] || [ "$end" -gt 23 ]; then
+    start=0; end=6; win_src="a default window — the launcher declares none this tool can use"
+  fi
+  cutoff=$(date -v-7d '+%Y-%m-%d' 2>/dev/null || date -d '7 days ago' '+%Y-%m-%d' 2>/dev/null) || cutoff=""
+  if [ -z "$cutoff" ]; then
+    finding UNKNOWN L10 live "could not compute a 7-day cutoff date" "neither BSD nor GNU date accepted a relative date"
+    return
+  fi
+  # The event type is the FOURTH field, not "the line contains Sleep": Assertions lines are
+  # the overwhelming majority of this log and would drown the count in noise. The output is
+  # read as a stream and never stored — it grows without bound.
+  # `seen` is why this is not a plain counter. awk runs its END block on an EMPTY input too,
+  # so `print k + 0` printed "0" when there was no history AT ALL — and 0 sleeps is the
+  # GUARDED branch below. On any machine without pmset (every Linux), L10 therefore answered
+  # "no sleep transition inside the work window", with "0 sleeps over the last 7 days" as its
+  # printed proof: a number manufactured from a reading that never happened. It made the
+  # UNKNOWN branch right underneath unreachable, contradicted the README's own promise that
+  # L10 degrades to UNKNOWN off launchd, and broke the rule this whole tool is built on —
+  # a check that measured nothing says UNKNOWN, never GUARDED.
+  n=$(pmset_log | awk -v c="$cutoff" -v a="$start" -v b="$end" '
+        { seen = 1 }
+        $4 == "Sleep" && $1 >= c {
+          h = substr($2, 1, 2) + 0
+          if (a <= b) { if (h >= a && h < b) k++ } else { if (h >= a || h < b) k++ }
+        }
+        END { if (seen) print k + 0; else print "none" }' 2>/dev/null)
+  case "$n" in ''|*[!0-9]*)
+    finding UNKNOWN L10 live "no readable sleep history" \
+      "pmset (macOS) returned nothing usable as this user; on Linux this needs a readable journal"
+    return ;;
+  esac
+  local nights; nights="between ${start}:00 and ${end}:00 over the last 7 days ($win_src)"
+  if [ "$n" -eq 0 ]; then
+    finding GUARDED L10 live "no sleep transition inside the work window" "0 sleeps $nights"
+    return
+  fi
+  local awake=""
+  src_line 'caffeinate|systemd-inhibit' >/dev/null 2>&1 && awake="yes"
+  if [ -n "$awake" ]; then
+    finding UNKNOWN L10 live "$n sleep transitions inside the work window" \
+      "$n sleeps $nights" \
+      "the launcher does wrap the agent in a keep-awake call, which does not cover a closed lid on battery" \
+      "a session launched into that state runs in ~20-second slices and produces nothing"
+  else
+    finding EXPOSED L10 live "$n sleep transitions in the window, and nothing keeps the machine awake" \
+      "$n sleeps $nights" \
+      "no caffeinate or systemd-inhibit call found in ${LAUNCHER##*/}" \
+      "sessions launched in that window are being suspended mid-run"
+  fi
+}
+
+# L11 — the prompt file, which is the whole session contract. An agent started without it
+# runs with an empty prompt, burns the wakeup and comes back three hours later in the same
+# state. Composite: the path comes from the launcher's source, which the scheduler's
+# environment can override.
+check_L11_prompt() {
+  if [ -z "$P_PROMPT" ]; then
+    finding UNKNOWN L11 live "no prompt file path found in the launcher" \
+      "looked for an assignment whose name or value says 'prompt'"
+    return
+  fi
+  if [ ! -e "$P_PROMPT" ]; then
+    if [ -n "$G_PROMPT" ]; then
+      finding UNKNOWN L11 live "the prompt file is not where this tool guessed, and the guess was not solid" \
+        "$P_PROMPT — built from \$$V_PROMPT, whose value falls back on \$$G_PROMPT" \
+        "nothing readable here declares \$$G_PROMPT: the scheduler is expected to supply it, and its real value is another path" \
+        "hand the scheduler entry over (--plist) and this becomes a measurement instead of a guess"
+      return
+    fi
+    finding EXPOSED L11 live "the prompt file does not exist" \
+      "$P_PROMPT — declared by \$$V_PROMPT" \
+      "whether this stops the chain or starts an agent with an empty mandate depends on the launcher; neither is what you want"
+    return
+  fi
+  local sz; sz=$(fsize "$P_PROMPT") || sz=""
+  if [ -z "$sz" ]; then
+    finding UNKNOWN L11 live "the prompt file is not readable as this user" "$P_PROMPT"
+  elif [ "$sz" -eq 0 ]; then
+    finding EXPOSED L11 live "the prompt file exists and is EMPTY" \
+      "$P_PROMPT — 0 bytes" "an agent launched with this has no mandate and no way to know it"
+  else
+    finding GUARDED L11 live "the prompt file exists and has content" "$P_PROMPT ($(human_size "$sz"))"
+  fi
+}
+
+# L12 — the scheduler's PATH does not resolve the agent binary. launchd hands agents a
+# minimal PATH; the agent then exits 127 and the chain "runs" on schedule forever without
+# ever producing a session — with a log that looks like sessions. Exact, no heuristic.
+check_L12_path() {
+  local bin_src="an assignment in the launcher"
+  if [ -z "$AGENT_BIN" ]; then
+    # Not every launcher parks its agent in a variable; plenty just call `claude` on a line.
+    # The NAME is then a guess, but what follows it — does the scheduler's PATH resolve that
+    # binary — stays exact, so the evidence says where the name came from.
+    local ln
+    if ln=$(src_line '(^|[;&|(]|[[:space:]])(claude|codex|aider|gemini|ollama|cursor-agent|goose)([[:space:]]|$)'); then
+      # -E, and it is not cosmetic: `\|` is a GNU extension that BSD sed does not implement,
+      # so on macOS this produced nothing and L12 answered "no agent binary name found in the
+      # launcher" on every chain that names its agent in plain text — which is most of them.
+      AGENT_BIN=$(printf '%s' "$ln" | sed -nE 's/.*[^A-Za-z-](claude|codex|aider|gemini|ollama|cursor-agent|goose)[^A-Za-z-].*/\1/p' | head -n 1)
+      bin_src="the name found at ${LAUNCHER##*/}:${ln%%:*}, not in a variable"
+    fi
+  fi
+  if [ -z "$AGENT_BIN" ]; then
+    finding UNKNOWN L12 live "no agent binary name found in the launcher" \
+      "looked for an assignment whose name says AGENT_CMD / AGENT_BIN / CLI, then for a known agent CLI called by name"
+    return
+  fi
+  case "$AGENT_BIN" in
+    */*)
+      if [ -x "$AGENT_BIN" ]; then
+        finding GUARDED L12 live "the agent binary is an absolute path and is executable" "$AGENT_BIN"
+      else
+        finding EXPOSED L12 live "the agent binary path is not executable" \
+          "$AGENT_BIN" "the launcher will exit 127 at every session, forever"
+      fi
+      return ;;
+  esac
+  # Both PATHs the chain actually runs under — the scheduler's AND the one the launcher
+  # exports for itself. Searching only the first accused every chain that had applied the
+  # documented fix for this very failure mode.
+  local hit rc
+  resolve_under_sched_path "$AGENT_BIN"; rc=$?; hit="$RESOLVE_HIT"
+  case "$rc" in
+    2) finding UNKNOWN L12 live "the scheduler's PATH is unknown and the launcher sets none" \
+         "'$AGENT_BIN' resolves in YOUR shell, which is not the environment the chain runs in"
+       return ;;
+    0) finding GUARDED L12 live "the agent binary resolves under the PATH the chain runs with" \
+         "$hit — via $RESOLVE_SRC"
+       return ;;
+  esac
+  local mine=""; mine=$(command -v "$AGENT_BIN" 2>/dev/null)
+  finding EXPOSED L12 live "'$AGENT_BIN' does not resolve under the chain's PATH" \
+    "$RESOLVE_LISTS" "binary name: $bin_src" \
+    "${mine:+your own shell finds it at $mine — that directory is in none of the lists above}" \
+    "the agent exits 127 at every session and the chain looks alive in the scheduler's eyes"
+}
+
+# L13 — the scheduler writes the probe's errors to one path while the launcher drains
+# another. A perfect silent failure: something empties a file nobody writes to, while the
+# real errors pile up where nothing reads them.
+check_L13_err_divergence() {
+  if [ -z "$SCHED_ERRPATH" ] || [ -z "$P_ERR" ]; then
+    if [ -n "$SCHED_ERRPATH" ] || [ -n "$P_ERR" ]; then
+      finding UNKNOWN L13 live "only one side declares a probe error path" \
+        "scheduler: ${SCHED_ERRPATH:-none} / launcher: ${P_ERR:-none}" \
+        "the two must name the same file for the drain to read what the probe wrote"
+    else
+      finding UNKNOWN L13 live "neither side declares a probe error path" "nothing to compare"
+    fi
+    return
+  fi
+  if [ "$SCHED_ERRPATH" = "$P_ERR" ]; then
+    finding GUARDED L13 live "scheduler and launcher name the same error file" "$SCHED_ERRPATH"
+  else
+    finding EXPOSED L13 live "scheduler and launcher name DIFFERENT error files" \
+      "scheduler writes: $SCHED_ERRPATH" \
+      "launcher drains:  $P_ERR (\$$V_ERR)" \
+      "the drain empties a file nothing writes; the real errors accumulate unread"
+  fi
+}
+
+# =========================================================================================
+# The static checks. They read shell this tool did not write, so they are heuristics, and the
+# report says `[static]` on every one of their lines. Two rules make them worth printing:
+#
+#   1. COMMENTS ARE REMOVED BEFORE ANY MATCH. Not a nicety. A launcher that has been through
+#      a few incidents quotes its own former bugs in the comment right next to the fix —
+#      `mkdir || exit 0` on one line, `$(stat … || echo 0)` on another. Matching the raw file
+#      turns a documented fix into a finding, which is the most insulting false positive
+#      available. Measured, not imagined: on the reference launcher, four of these checks
+#      matched a comment before this existed.
+#   2. EVERY CHECK CARRIES A POSITIVE PATTERN, not only its anti-pattern. The absence of a
+#      dangerous shape is not proof of protection — it is UNKNOWN. A static check with no
+#      positive pattern has two states, and a report showing three of them is lying about one.
+# =========================================================================================
+
+CODE_CACHE=""   # "N:code" per line, comments and the shebang stripped
+
+load_code() {
+  [ -n "$LAUNCHER" ] && [ -r "$LAUNCHER" ] || return 1
+  # Quote-aware: a `#` inside a string is not a comment, and `$#`, `${#x}`, `#!` are not
+  # comments either — hence the "preceded by a separator" test rather than "contains a #".
+  CODE_CACHE=$(awk -v SQ="'" -v DQ='"' '
+    {
+      line = $0; out = ""; sq = 0; dq = 0; n = length(line)
+      for (i = 1; i <= n; i++) {
+        c = substr(line, i, 1)
+        if (c == "\\" && dq) { out = out c substr(line, i + 1, 1); i++; continue }
+        if (c == SQ && !dq) { sq = !sq }
+        else if (c == DQ && !sq) { dq = !dq }
+        else if (c == "#" && !sq && !dq) {
+          p = (i == 1) ? " " : substr(line, i - 1, 1)
+          if (p == " " || p == "\t" || p == ";" || p == "&" || p == "|" || p == "(") break
+        }
+        out = out c
+      }
+      print NR ":" out
+    }' "$LAUNCHER" 2>/dev/null)
+  [ -n "$CODE_CACHE" ]
+}
+
+# code_all PATTERN → every "N:code" line matching. The pattern is used raw, so a caller may
+# anchor with ^ or $ against the "N:code" form.
+code_all() { printf '%s\n' "$CODE_CACHE" | grep -E "$1" 2>/dev/null; }
+code_first() {
+  local out; out=$(code_all "$1" | head -n 1)
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+code_has() { code_all "$1" >/dev/null 2>&1 && [ -n "$(code_all "$1")" ]; }
+
+# A MENTION is not a USE, and telling the two apart is what makes a static finding's address
+# worth printing. Three shapes mention a thing without doing anything with it, and all three
+# were being cited as the site of an invocation or of a numeric read (exp-008):
+#
+#   an existence guard      command -v claude >/dev/null || exit 1
+#   a message               echo "no claude binary on PATH" >> "$LOG"
+#                           log "amorcage: prochain reveil a $(cat "$NEXT_FILE")"
+#   a declaration           : "${BOT_CLI:=fakeagent}"
+#
+# The third only disqualifies an invocation, never a read — `DUE=$(cat "$DUE_FILE")` is an
+# assignment AND the read this tool is looking for — so it lives in its own filter.
+_drop_guards_and_messages() {
+  grep -vE '(^|[^A-Za-z_-])(command[[:space:]]+-v|which|type[[:space:]]+-|hash)[[:space:]]' \
+  | grep -vE '^[0-9]+:[[:space:]]*(echo|printf|log|log_message|logger|warn|notify|say|die)([[:space:]]|$)'
+}
+
+# code_all_running PATTERN → every matching line that actually RUNS something.
+code_all_running() {
+  code_all "$1" | _drop_guards_and_messages \
+    | grep -vE '^[0-9]+:[[:space:]]*(:[[:space:]]+)?"?\$?\{?[A-Za-z_][A-Za-z0-9_]*\}?"?(:?=|:?-)'
+}
+
+# code_first_running PATTERN → the first matching line that actually RUNS something.
+code_first_running() {
+  local out
+  out=$(code_all_running "$1" | head -n 1)
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+# code_first_reading PATTERN → the first matching line that actually CONSUMES a value.
+code_first_reading() {
+  local out
+  out=$(code_all "$1" | _drop_guards_and_messages | head -n 1)
+  [ -n "$out" ] || return 1
+  printf '%s' "$out"
+}
+
+# code_window START COUNT → the code of COUNT lines from START, joined on one line. Used by
+# the checks that must read a failure branch, not a single line.
+code_window() {
+  printf '%s\n' "$CODE_CACHE" | awk -v s="$1" -v c="$2" \
+    'NR >= s && NR < s + c { sub(/^[0-9]+:/, ""); printf "%s ; ", $0 }'
+}
+
+# ev CODELINE → "session.sh:212:  the line", the form a user can go and check. A static
+# finding without it is an accusation without an address.
+ev() {
+  local n="${1%%:*}" c="${1#*:}"
+  c="${c#"${c%%[![:space:]]*}"}"
+  printf '%s:%s:  %s' "${LAUNCHER##*/}" "$n" "$c"
+}
+lineno() { printf '%s' "${1%%:*}"; }
+
+# The regex fragment matching a reference to variable NAME: $NAME or ${NAME}.
+vref() { printf '\\$\\{?%s\\}?' "$1"; }
+
+# assigned_var CODELINE → the name of the variable this line assigns, or nothing.
+assigned_var() {
+  printf '%s' "${1#*:}" \
+    | sed -nE 's/^[[:space:]]*(local[[:space:]]+|export[[:space:]]+|declare[[:space:]]+(-[a-zA-Z]+[[:space:]]+)?|readonly[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\3/p' \
+    | head -n 1
+}
+
+# guard_for_var VAR FROMLINE → the line number of a numeric-shape test that protects VAR, at
+# or after FROMLINE. Nothing, and status 1, when no such test can be tied to that variable.
+#
+# `code_has '\*\[!0-9\]\*'` used to be the whole test in S5 and S6: a numeric-shape test
+# ANYWHERE in the launcher earned GUARDED for a value that nothing validated, and the address
+# printed as proof was the address of the UNPROTECTED read. Delete the guard S5 claims to see
+# and it stayed green, because some other variable, elsewhere, was shape-tested.
+# Two things are demanded here instead: the test must NAME the variable, and it must come
+# after the line that assigns it. The `case` form spreads over two or three lines
+# (`case "$m" in` / `''|*[!0-9]*)`), so the variable is looked for in a small window ending
+# at the shape test, not on that single line.
+guard_for_var() {
+  # `gline`, not `ln`: the read-only guard in the test suite reads `(( ln > 2` as the WRITING
+  # COMMAND ln(1), and it is right to be loud rather than clever — the guard is what proves to
+  # a stranger that this tool cannot touch their chain. The variable moves; the guard does not.
+  # $3 is optional: an UPPER bound, for the callers that need the guard to sit between the
+  # assignment and a particular use of the value. Without it a shape test written AFTER the
+  # site being judged would count as protecting it, which is the wrong way round in time.
+  local v="$1" from="$2" upto="${3:-0}" gline gcode start win
+  [ -n "$v" ] || return 1
+  # Two spellings of "is this a number", not one. `[[ "$X" =~ ^[0-9]+$ ]]` is as much a numeric
+  # shape test as `case "$X" in *[!0-9]*)`, and a launcher that used it was told, in the EXPOSED
+  # evidence, "no numeric-shape test on that value" — an instrument asserting an absence it had
+  # not looked for. An accusation that names a missing check has to have searched for it.
+  for gline in $(code_all '\*\[!0-9\]\*|=~[^;]*\[0-9\]' | cut -d: -f1); do
+    [ "$gline" -ge "$from" ] || continue
+    [ "$upto" -eq 0 ] || [ "$gline" -le "$upto" ] || continue
+    gcode=$(code_window "$gline" 1)
+    # The variable must be on the TEST LINE itself, or be the subject of the `case` that opens
+    # two lines above it. Merely appearing somewhere in the window is not enough: a launcher
+    # doing `[ -n "$DUE" ] || DUE=$NOW` on one line and `case "$IDLE_RAW" in ''|*[!0-9]*)` on
+    # the next earned GUARDED for $DUE, with the address of another variable's guard — the exact
+    # unfalsifiable shape this function was written in S37 to stop.
+    if printf '%s' "$gcode" | grep -qE '\$\{?'"$v"'\}?([^A-Za-z0-9_]|$)'; then
+      printf '%s' "$gline"; return 0
+    fi
+    start=$(( gline > 2 ? gline - 2 : 1 ))
+    win=$(code_window "$start" $(( gline - start + 1 )))
+    if printf '%s' "$win" | grep -qE 'case[[:space:]]+"?\$\{?'"$v"'\}?"?[[:space:]]+in'; then
+      printf '%s' "$gline"; return 0
+    fi
+  done
+  return 1
+}
+
+# resolve_under_sched_path BIN → prints the resolved path (0), fails with 1 when the PATH is
+# known and does not contain it, or 2 when there is no PATH to test against.
+# The PATH the LAUNCHER exports for itself, expanded, with this tool's internal marks stripped.
+# Empty if it exports none. $1 = the scheduler's PATH, substituted into a `PATH="$X:$PATH"`
+# idiom so that a launcher which APPENDS is read correctly rather than refused.
+#
+# This exists because a launcher that fixes its own environment is not a chain at risk:
+# `export PATH=…` before the agent call is THE prescribed remedy for the failure mode L12 was
+# written to name, and a check blind to it accuses precisely the chains that took its advice.
+# Found by pointing the tool at a chain whose PATH is set on line 32 of its launcher and being
+# told — in a report that the running session was itself producing — that its agent "exits 127
+# at every session, forever", three lines above L1 GUARDED "the probe's last run exited 0".
+# Same rule as resolve_under_sched_path, and for the same reason: the answer AND its reserve
+# come back through globals, never through stdout — a `$( … )` caller would drop the reserve
+# and print a certainty the tool does not have.
+LAUNCHER_PATH=""
+LAUNCHER_PATH_PROVISIONAL=0
+launcher_path() {
+  local sched="${1:-}" raw val pre rest post
+  LAUNCHER_PATH=""; LAUNCHER_PATH_PROVISIONAL=0
+  raw=$(raw_assign PATH) || return 1
+  val=$(expand_value "$raw" 0) || return 1
+  case "$val" in *"$UNRESOLVED_MARK"*) return 1 ;; esac
+  # `${AGENT_PATH:-/a:/b}` is the common shape: the tool cannot know whether the scheduler
+  # exports AGENT_PATH, so expand_value marks the default provisional. The default is still
+  # what the chain runs with when nothing overrides it — keep it, and carry the reserve.
+  while :; do
+    case "$val" in
+      *"$PROVISIONAL_MARK"*)
+        pre="${val%%"$PROVISIONAL_MARK"*}"; rest="${val#*"$PROVISIONAL_MARK"}"
+        post="${rest#*@@}"; LAUNCHER_PATH_PROVISIONAL=1; val="$pre$post" ;;
+      *) break ;;
+    esac
+  done
+  # A launcher that appends to what it was handed: resolve $PATH from the scheduler, or drop
+  # that segment rather than search a literal '$PATH' directory.
+  val="${val//\$\{PATH\}/$sched}"
+  val="${val//\$PATH/$sched}"
+  case "$val" in ''|*'$'*) return 1 ;; esac
+  LAUNCHER_PATH="$val"
+}
+
+# RESOLVE_SRC / RESOLVE_LISTS describe WHERE the answer came from — part of the answer, since
+# the two sources do not carry the same certainty.
+# RESOLVE_HIT and not stdout: the caller used to read this through `$( … )`, which is a
+# SUBSHELL — every global set in here died at the closing paren, and the source of the answer
+# came out empty in the report. Caught by the test written for the reserve text, nine minutes
+# after the function was written.
+RESOLVE_HIT=""
+RESOLVE_SRC=""
+RESOLVE_LISTS=""
+resolve_under_sched_path() {
+  local p d lp
+  RESOLVE_HIT=""; RESOLVE_SRC=""; RESOLVE_LISTS=""
+  p=$(sched_env PATH) || p=""
+  if [ -n "$p" ]; then
+    RESOLVE_SRC="the PATH declared in the scheduler entry"
+  elif [ "$SCHEDULER" = "launchd" ]; then
+    p="/usr/bin:/bin:/usr/sbin:/sbin"
+    RESOLVE_SRC="launchd's default PATH — the entry declares none"
+  fi
+  local IFS_SAVE="$IFS"
+  if [ -n "$p" ]; then
+    RESOLVE_LISTS="$RESOLVE_SRC: $p"
+    IFS=':'
+    for d in $p; do
+      IFS="$IFS_SAVE"
+      if [ -x "$d/$1" ]; then RESOLVE_HIT="$d/$1"; return 0; fi
+      IFS=':'
+    done
+    IFS="$IFS_SAVE"
+  fi
+  launcher_path "$p" && lp="$LAUNCHER_PATH" || lp=""
+  if [ -n "$lp" ]; then
+    RESOLVE_SRC="the PATH the launcher exports for itself"
+    [ "$LAUNCHER_PATH_PROVISIONAL" -eq 0 ] || \
+      RESOLVE_SRC="the default of the PATH the launcher exports for itself (a scheduler variable could override it)"
+    RESOLVE_LISTS="${RESOLVE_LISTS:+$RESOLVE_LISTS
+}$RESOLVE_SRC: $lp"
+    IFS=':'
+    for d in $lp; do
+      IFS="$IFS_SAVE"
+      if [ -x "$d/$1" ]; then RESOLVE_HIT="$d/$1"; return 0; fi
+      IFS=':'
+    done
+    IFS="$IFS_SAVE"
+  fi
+  [ -n "$p$lp" ] || return 2
+  return 1
+}
+
+# agent_invocation → the code line that RUNS the agent, or nothing. Shared by S8, S15 and S16
+# rather than copied into each: it carries two corrections paid for in exp-008 (an existence
+# guard and a bare assignment were both being cited as "the call"), and a locator that is
+# hardened in one check and naive in the next is exactly the propagation defect this kit sells
+# a registry against.
+agent_invocation() {
+  local l name
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    name=$(printf '%s' "${l#*:}" \
+           | grep -oE '\$\{?[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*\}?' | head -n 1 | tr -d '${}')
+    # The pattern is deliberately loose — a tool that only bounds the CLI it has heard of bounds
+    # nothing on a foreign chain — but loose enough that `mkdir -p "$AGENT_HOME/state"` and
+    # `kill "$AGENT_PID"` matched it. Measured, not feared: on a launcher whose first running
+    # line was `mkdir -p "$AGENT_HOME/state"`, that line became "where the agent runs", and the
+    # startup stamp forty lines below it was read as an end-of-session write — GUARDED S16 on a
+    # chain with no end-of-session write at all. These names are the ones that say "not a binary".
+    case "$name" in
+      ''|*DIR|*HOME|*PID|*ARG|*ARGS|*OPTS|*FLAGS|*TIMEOUT|*REPO|*FILE|*LOG|*PATH|*STATE*|*PROMPT*|*BRIEF*) continue ;;
+    esac
+    printf '%s' "$l"; return 0
+  done <<EOF
+$(code_all_running '\$\{?[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*\}?')
+EOF
+  l=$(code_first_running '(^|[^A-Za-z_-])(claude|codex|aider|gemini|ollama|cursor-agent|goose)([[:space:]]|$)') || return 1
+  printf '%s' "$l"
+}
+
+# agent_return_line → the line number AFTER WHICH the session is doing its end-of-run work,
+# or nothing. This is not the same question as "where is the agent launched": S16 has to tell
+# a write done at STARTUP from a write done at the END. The divider is the first `wait` AT OR
+# AFTER the invocation — "the first wait in the file" was the first version and it was wrong in
+# a way that manufactured calm: a launcher doing `git pull &` then `wait` before starting its
+# agent had its startup stamp classified as an end-of-session write. Message lines are dropped
+# too, so `echo "another session holds the lock; will wait for the next probe"` is not a wait.
+agent_return_line() {
+  local call an w
+  call=$(agent_invocation) || return 1
+  an=$(lineno "$call")
+  for w in $(code_all_running '(^|[^A-Za-z_-])wait([[:space:]]|$)' | cut -d: -f1); do
+    [ "$w" -ge "$an" ] || continue
+    printf '%s' "$w"; return 0
+  done
+  printf '%s' "$an"
+}
+
+# S1 — a truncating redirection onto the wakeup file. `date … > "$WAKEUP"` truncates the file
+# BEFORE running date: if date fails, the trigger is left empty, and an empty trigger is the
+# end of the chain — silently, forever. The safe shape is write-to-temp then rename.
+check_S1_wakeup_write() {
+  if [ -z "$V_WAKEUP" ]; then
+    finding UNKNOWN S1 static "no wakeup variable to look for a writer of" \
+      "this check needs the name of the variable holding the wakeup file"
+    return
+  fi
+  local w; w=$(vref "$V_WAKEUP")
+  local good bad
+  good=$(code_first "> *\"?$w\.tmp") || good=""
+  bad=$(code_first "(^|[^>])> *\"?$w\"?([[:space:]]|;|&|\)|\$)") || bad=""
+  if [ -n "$bad" ]; then
+    finding EXPOSED S1 static "the wakeup file is written by truncating redirection" \
+      "$(ev "$bad")" \
+      "the redirection truncates before the command on its left runs; a command that fails leaves an EMPTY trigger" \
+      "an empty trigger is read as 'no wakeup' by most launchers: silent stop, every tick, forever"
+  elif [ -n "$good" ]; then
+    finding GUARDED S1 static "the wakeup file is written through a temporary and renamed" "$(ev "$good")"
+  else
+    finding UNKNOWN S1 static "nothing in this launcher writes the wakeup file" \
+      "\$$V_WAKEUP is read here but written elsewhere (the agent, or a helper script)" \
+      "point this tool at the writer too if you want that side checked"
+  fi
+}
+
+# trap_lines → "N<TAB>SIGNALS<TAB>handler" for every trap in the launcher.
+trap_lines() {
+  local l n rest body sigs
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    n="${l%%:*}"; rest="${l#*:}"
+    case "$rest" in *trap*) rest="${rest#*trap}" ;; *) continue ;; esac
+    rest="${rest#"${rest%%[![:space:]]*}"}"
+    case "$rest" in
+      "'"*) rest="${rest#\'}"; body="${rest%%\'*}"; rest="${rest#*\'}" ;;
+      '"'*) rest="${rest#\"}"; body="${rest%%\"*}"; rest="${rest#*\"}" ;;
+      *)    body="${rest%%[[:space:]]*}"; rest="${rest#"$body"}" ;;
+    esac
+    # `trap - EXIT INT TERM` REMOVES handlers; it is not one. Read as a handler, its body `-`
+    # contains no `exit`, so S3 accused a standard cleanup idiom of "releasing and letting the
+    # script continue" — an accusation whose mechanism is absent from the line it points at,
+    # which this file calls the worst kind. It also counted as INT/TERM coverage for S2, so a
+    # single `trap -` line produced GUARDED S2 and EXPOSED S3 at once.
+    case "$body" in '-'|'') continue ;; esac
+    # `SIG` stripped, and the numeric spellings admitted below: `trap cleanup SIGTERM SIGINT`
+    # and `trap cleanup 2 15` are the same trap as `trap cleanup TERM INT`, and neither used
+    # to match — so both were reported as "every trap covers EXIT only", a sentence the code
+    # had not measured either half of.
+    sigs=$(printf '%s' "$rest" | tr 'a-z' 'A-Z' | tr -c 'A-Z0-9' ' ' | sed 's/ SIG/ /g')
+    printf '%s\t %s \t%s\n' "$n" "$sigs" "$body"
+  done <<EOF
+$(code_all '(^|[^A-Za-z_])trap[[:space:]]')
+EOF
+}
+
+# S2 — the union of every trap's signals, not one trap read alone. The reference launcher
+# installs FOUR separate traps, the first of which is literally `trap 'release' EXIT`; a check
+# that reads "trap … EXIT with no INT/TERM/HUP" line by line calls the prescribed form a bug.
+# What matters is whether ANY trap covers a kill: EXIT alone does not run on SIGTERM, so a
+# scheduler bootout leaves the lock orphaned until it ages out — hours of nothing, no message.
+check_S2_trap_coverage() {
+  if [ -z "$V_LOCK$P_LOCK" ]; then
+    finding UNKNOWN S2 static "no lock found, so nothing here needs releasing on a signal" \
+      "this check only means something for a launcher that takes a lock"
+    return
+  fi
+  local traps covered="" first="" l sigs
+  traps=$(trap_lines)
+  if [ -z "$traps" ]; then
+    finding EXPOSED S2 static "the launcher takes a lock and installs no trap at all" \
+      "lock: ${P_LOCK:-\$$V_LOCK}" \
+      "killed, booted out or rebooted, it leaves the lock behind and every later session exits on it"
+    return
+  fi
+  while IFS='	' read -r l sigs _; do
+    [ -n "$first" ] || first="$l"
+    case "$sigs" in *" INT "*|*" TERM "*|*" HUP "*|*" QUIT "*|*" 1 "*|*" 2 "*|*" 3 "*|*" 15 "*) covered="$covered$l " ;; esac
+  done <<EOF
+$traps
+EOF
+  if [ -n "$covered" ]; then
+    finding GUARDED S2 static "traps cover a kill signal, not only EXIT" \
+      "$(ev "$(code_first "^${covered%% *}:")")" \
+      "signals are read as the union of every trap in the file, which is how the shell applies them"
+  else
+    finding EXPOSED S2 static "every trap covers EXIT only — none covers INT/TERM/HUP" \
+      "$(ev "$(code_first "^$first:")")" \
+      "EXIT does not run on SIGTERM: a scheduler bootout or a reboot leaves the lock owned by nobody" \
+      "every session after that exits on the orphan lock until it ages out"
+  fi
+}
+
+# S3 — a signal handler that does not terminate. `trap 'release_lock' TERM` looks complete and
+# is not: bash runs the handler and then RESUMES the script. The lock is released while the
+# session keeps going, and the next probe starts a second agent in the same repo. EXIT is
+# excluded on purpose — an `exit` inside an EXIT handler is a recursion, and the reference
+# launcher deliberately omits it there.
+check_S3_trap_exits() {
+  local traps l sigs body bad="" good=""
+  traps=$(trap_lines)
+  if [ -z "$traps" ]; then
+    finding UNKNOWN S3 static "no trap to inspect" "nothing in this launcher installs a signal handler"
+    return
+  fi
+  while IFS='	' read -r l sigs body; do
+    case "$sigs" in *" INT "*|*" TERM "*|*" HUP "*|*" QUIT "*|*" 1 "*|*" 2 "*|*" 3 "*|*" 15 "*) ;; *) continue ;; esac
+    case "$body" in
+      *exit*) [ -n "$good" ] || good="$l" ;;
+      *)      [ -n "$bad" ]  || bad="$l" ;;
+    esac
+  done <<EOF
+$traps
+EOF
+  if [ -n "$bad" ]; then
+    finding EXPOSED S3 static "a signal handler releases and lets the script continue" \
+      "$(ev "$(code_first "^$bad:")")" \
+      "bash runs the handler and RESUMES: the lock is gone while the session is still alive" \
+      "the next probe then starts a second agent in the same working copy"
+  elif [ -n "$good" ]; then
+    finding GUARDED S3 static "every kill-signal handler terminates the script" \
+      "$(ev "$(code_first "^$good:")")"
+  else
+    finding UNKNOWN S3 static "no handler on INT/TERM/HUP to inspect" \
+      "only an EXIT handler was found, and this check deliberately does not judge those"
+  fi
+}
+
+# S4 — losing the race for the lock and failing to create it are two different events, and
+# `mkdir … || exit 0` makes them one. A full disk, a read-only volume or a state directory
+# left root-owned by one sudo run then reads exactly like "another session has it": silent
+# exit, every tick, forever, with nothing in any log.
+check_S4_lock_failure() {
+  local ln pat="mkdir[[:space:]]"
+  [ -n "$V_LOCK" ] && pat="mkdir[^;|&]*$(vref "$V_LOCK")"
+  ln=$(code_all "$pat" | grep -vE 'mkdir[[:space:]]+-p' | head -n 1) || ln=""
+  if [ -z "$ln" ]; then
+    finding UNKNOWN S4 static "no lock-creating mkdir found" \
+      "this launcher takes its lock some other way, or takes none"
+    return
+  fi
+  local win; win=$(code_window "$(lineno "$ln")" 4)
+  case "$win" in
+    *' -d '*|*' -e '*|*'exit 1'*|*'exit 2'*|*log_line*)
+      finding GUARDED S4 static "a failed mkdir is told apart from a lost race" \
+        "$(ev "$ln")" "the failure branch tests whether the lock is actually there before giving up" ;;
+    *'exit 0'*|*'return 0'*|*'|| true'*)
+      finding EXPOSED S4 static "a failed mkdir is treated as 'someone else has the lock'" \
+        "$(ev "$ln")" \
+        "a full disk, a read-only volume or a root-owned state dir is indistinguishable from a lost race" \
+        "the chain then exits silently at every tick and nothing is ever written anywhere" ;;
+    *)
+      finding UNKNOWN S4 static "could not read what happens when mkdir fails" "$(ev "$ln")" ;;
+  esac
+}
+
+# S5 — a defensive fallback pointing the wrong way. `$(stat … || echo 0)` inside an age
+# computation turns an unreadable mtime into an age of fifty-six years, which is past any
+# staleness cutoff — so the lock of a LIVE session gets torn down and a second agent starts.
+# The fix is not a better default: it is that an unreadable value means unknown, not old.
+check_S5_age_fallback() {
+  local bad good
+  bad=$(code_first '\$\([[:space:]]*stat[^)]*\|\|[[:space:]]*echo[[:space:]]+0') || bad=""
+  if [ -n "$bad" ]; then
+    finding EXPOSED S5 static "an unreadable timestamp falls back to 0, i.e. 'infinitely old'" \
+      "$(ev "$bad")" \
+      "epoch 0 is 1970: every age computed from it is past every staleness cutoff" \
+      "the lock of a session that is still running is then deleted, and a second agent starts"
+    return
+  fi
+  local st; st=$(code_first 'stat[[:space:]]+-[fc][[:space:]]*%[mY]') || st=""
+  if [ -z "$st" ]; then
+    finding UNKNOWN S5 static "this launcher computes no file age" "nothing to check the fallback of"
+    return
+  fi
+  local v g
+  v=$(assigned_var "$st")
+  if [ -n "$v" ] && g=$(guard_for_var "$v" "$(lineno "$st")"); then
+    finding GUARDED S5 static "the timestamp is validated before any arithmetic" \
+      "$(ev "$(code_first "^$g:")")" \
+      "the value read at ${LAUNCHER##*/}:$(lineno "$st") is shape-tested here, before it is used as a number"
+  else
+    finding UNKNOWN S5 static "a file age is computed and this check cannot see it validated" \
+      "$(ev "$st")" \
+      "${v:+looked for a numeric shape test naming \$$v after this line, and found none}${v:-this line assigns no variable this check can follow to its validation}"
+  fi
+}
+
+# S6 — dividing inside the awk that reads an idle probe. `int($NF/1000000000)` returns 0 for
+# any unexpected string, and 0 idle seconds means "the human is typing right now": the guard
+# postpones every session, forever, and its only trace is a log line indistinguishable from a
+# real human at the keyboard. The most fail-CLOSED line in a script whose doctrine is fail-open.
+check_S6_idle_division() {
+  local probe; probe=$(code_first '(ioreg|xprintidle|HIDIdleTime)') || probe=""
+  if [ -z "$probe" ]; then
+    finding UNKNOWN S6 static "no human-idle probe found" "this launcher does not check whether you are at the keyboard"
+    return
+  fi
+  local bad
+  bad=$(code_all '(ioreg|xprintidle|HIDIdleTime)' | grep -E 'awk' | grep -E '(int\(|[0-9)][[:space:]]*/[[:space:]]*[0-9])' | head -n 1) || bad=""
+  if [ -n "$bad" ]; then
+    finding EXPOSED S6 static "the idle probe is divided inside awk, before being validated" \
+      "$(ev "$bad")" \
+      "awk turns any unexpected string into 0, and 0 idle seconds reads as 'the human is typing'" \
+      "the session is then postponed at every tick, forever, leaving an entirely plausible log line"
+    return
+  fi
+  local v g
+  v=$(assigned_var "$probe")
+  if [ -n "$v" ] && g=$(guard_for_var "$v" "$(lineno "$probe")"); then
+    finding GUARDED S6 static "the idle probe is validated before it is used as a number" \
+      "$(ev "$(code_first "^$g:")")" \
+      "the raw value read at ${LAUNCHER##*/}:$(lineno "$probe") is shape-tested here, before any division"
+  else
+    finding UNKNOWN S6 static "an idle probe is read and this check cannot see it validated" \
+      "$(ev "$probe")" \
+      "${v:+looked for a numeric shape test naming \$$v after this line, and found none}${v:-this line assigns no variable this check can follow to its validation}"
+  fi
+}
+
+# S7 — the keep-awake wrapper. Its ABSENCE is not judged here: whether a machine that never
+# sleeps needs one is L10's call, made on a measured sleep history rather than on a pattern.
+# What is judged here is the wrapper that is present unconditionally: if the binary does not
+# resolve in the environment the scheduler hands the launcher, the whole session never starts,
+# and a keep-awake wrapper is the last thing that should be able to stop a session.
+check_S7_keepawake() {
+  local w; w=$(code_first '(caffeinate|systemd-inhibit)') || w=""
+  if [ -z "$w" ]; then
+    finding UNKNOWN S7 static "no keep-awake wrapper in this launcher" \
+      "whether that matters depends on whether this machine sleeps — see L10, which measures it"
+    return
+  fi
+  local guard
+  guard=$(code_first 'command -v[[:space:]]+(caffeinate|systemd-inhibit)') || guard=""
+  if [ -n "$guard" ]; then
+    finding GUARDED S7 static "the keep-awake wrapper is used only if it exists" \
+      "$(ev "$guard")" "a missing binary degrades to running without it, instead of not running"
+    return
+  fi
+  local bin; case "$(ev "$w")" in *systemd-inhibit*) bin="systemd-inhibit" ;; *) bin="caffeinate" ;; esac
+  local hit rc
+  resolve_under_sched_path "$bin"; rc=$?; hit="$RESOLVE_HIT"
+  case "$rc" in
+    0) finding GUARDED S7 static "the wrapper is unconditional but does resolve for the chain" \
+         "$(ev "$w")" "$hit — via $RESOLVE_SRC" ;;
+    1) finding EXPOSED S7 static "the wrapper is unconditional and does NOT resolve for the chain" \
+         "$(ev "$w")" \
+         "'$bin' is on none of the PATHs this chain runs with:" "$RESOLVE_LISTS" \
+         "the agent is never launched at all: a keep-awake wrapper stops every session" ;;
+    *) finding UNKNOWN S7 static "the wrapper is unconditional and no PATH is known for this chain" \
+         "$(ev "$w")" "'$bin' resolving in YOUR shell says nothing about the environment the chain runs in" ;;
+  esac
+}
+
+# S8 — nothing bounds the agent's run. An agent that never returns is worse than one that
+# crashes: the shell stays alive, the EXIT trap never fires, the lock keeps a LIVE owner, the
+# wakeup is never consumed. The chain is dead forever, and the log simply stops mid-session.
+check_S8_watchdog() {
+  # The call is found by the SHAPE of the variable holding it, not by the agent's name: a
+  # tool that only bounds the CLI it has heard of bounds nothing on a chain it did not write.
+  #
+  # "The line that RUNS the agent", not "the first line that MENTIONS it". It used to be the
+  # latter, and on foreign chains that first line was `if ! command -v claude; then` or the
+  # declaration `: "${BOT_CLI:=…}"` — so the accusation carried an address at which nothing
+  # was being launched (exp-008). Existence guards and bare assignments are skipped here.
+  local call=""
+  call=$(agent_invocation) || call=""
+  if [ -z "$call" ]; then
+    finding UNKNOWN S8 static "no agent invocation found to bound" "this check needs to see the call it would time out"
+    return
+  fi
+  # `timeout 900 agent`, `timeout "$SESSION_TIMEOUT" agent`, `timeout -k 30 900 agent`. The
+  # quoted-variable form is the commonest of the three and was the one this pattern missed:
+  # it demanded a digit or a $ straight after the space and got a double quote, so a chain
+  # whose agent WAS bounded was told "nothing bounds how long the agent may run" (exp-008).
+  # S8 is the check you reach for when you suspect a hung agent — a false EXPOSED here sends
+  # someone hunting a watchdog they already have.
+  local t
+  # code_first, not code_first_running — six lines after the call site was hardened against
+  # exactly this. `log "timeout 900 reached, killing the agent"` matched, and S8 answered
+  # GUARDED with a MESSAGE as its address: the check you reach for when you suspect a hung
+  # agent said one was bounded because the launcher had a line SAYING so.
+  t=$(code_first_running '(^|[^A-Za-z_-])(timeout|gtimeout)[[:space:]]+[-"'"'"'0-9$]') || t=""
+  if [ -n "$t" ]; then
+    finding GUARDED S8 static "the agent call is bounded by timeout(1)" "$(ev "$t")"
+    return
+  fi
+  # The pure-shell watchdog: a backgrounded subshell that sleeps then kills, plus a wait.
+  local dm; dm=$(code_first '\([[:space:]]*sleep[[:space:]]') || dm=""
+  if [ -n "$dm" ]; then
+    local win; win=$(code_window "$(lineno "$dm")" 8)
+    case "$win" in
+      *kill*) if code_has '(^|[^A-Za-z_-])wait([[:space:]]|$)'; then
+                finding GUARDED S8 static "the agent call is bounded by a shell watchdog" \
+                  "$(ev "$dm")" "a backgrounded sleep-then-kill, which needs no timeout(1) to exist"
+                return
+              fi ;;
+    esac
+  fi
+  finding EXPOSED S8 static "nothing bounds how long the agent may run" \
+    "$(ev "$call")" \
+    "no timeout(1) call and no sleep-then-kill watchdog around it" \
+    "an agent that hangs holds the lock with a LIVE pid: no later session starts, and nothing says so"
+}
+
+# S9 — ARITHMETIC on a zero-padded hour. `08` is invalid octal to bash, so `$((HOUR))` dies —
+# and under `set -u` it dies before it can log anything. Once a day, for one hour, for good.
+#
+# The word "arithmetic" is the whole check, and this used to ignore it: any launcher that read
+# `date +%H` without a `10#` anywhere was accused. But `[ "$H" -ge 23 ]` is the test(1)
+# builtin, which compares in DECIMAL and cannot fail this way — only $(( )), (( )), let,
+# declare -i and `[[ x -ge y ]]` evaluate arithmetically. A foreign chain doing exactly that
+# was told its "arithmetic fails", with evidence describing an arithmetic present nowhere in
+# the file (exp-008; the false positive was named in advance in the sealed classification, and
+# it happened). An accusation whose mechanism is absent from the source is the worst kind.
+check_S9_octal_hour() {
+  local d; d=$(code_first 'date[[:space:]]+.?\+?.?%[HMdj]') || d=""
+  if [ -z "$d" ]; then
+    finding UNKNOWN S9 static "this launcher reads no zero-padded time field" "nothing to protect from octal"
+    return
+  fi
+  if code_has '10#'; then
+    finding GUARDED S9 static "zero-padded time fields are forced to base 10" "$(ev "$(code_first '10#')")"
+    return
+  fi
+  # Case 1: the date call is evaluated arithmetically where it stands — $(( $(date +%H) )).
+  local dtext="${d#*:}" arith=""
+  case "$dtext" in
+    *'$(('*|*'let '*) arith="$d" ;;
+  esac
+  # Case 2: it lands in a variable, and THAT is what reaches an arithmetic context. The name
+  # is taken from the assignment on the same line; without it there is nothing to follow.
+  local var=""
+  if [ -z "$arith" ]; then
+    case "$dtext" in
+      *=*) var="${dtext%%=*}"
+           var="${var##*[!A-Za-z0-9_]}"
+           case "$var" in ''|*[!A-Za-z0-9_]*|[0-9]*) var="" ;; esac ;;
+    esac
+    if [ -n "$var" ]; then
+      arith=$(code_first "\\\$\\(\\([^)]*(^|[^A-Za-z0-9_])$var([^A-Za-z0-9_]|\\)|$)") || arith=""
+      [ -n "$arith" ] || arith=$(code_first "^[0-9]+:[[:space:]]*\\(\\([^)]*$var") || arith=""
+      [ -n "$arith" ] || arith=$(code_first "(^|[^A-Za-z_-])let[[:space:]][^;]*$var") || arith=""
+      [ -n "$arith" ] || arith=$(code_first "declare[[:space:]]+-[a-zA-Z]*i[a-zA-Z]*[[:space:]]+$var") || arith=""
+      [ -n "$arith" ] || arith=$(code_first "\\[\\[[^]]*\\\$\\{?$var\\}?[^]]*-(ge|gt|le|lt|eq|ne)") || arith=""
+      [ -n "$arith" ] || arith=$(code_first "\\[\\[[^]]*-(ge|gt|le|lt|eq|ne)[^]]*\\\$\\{?$var\\}?") || arith=""
+    fi
+  fi
+  if [ -n "$arith" ]; then
+    finding EXPOSED S9 static "a zero-padded time field reaches arithmetic without 10#" \
+      "$(ev "$d")" \
+      "$(ev "$arith")" \
+      "bash reads 08 and 09 as invalid octal: the arithmetic fails, and under set -u the shell dies" \
+      "once a day, for one hour, with no log line because the death precedes the logging"
+  elif [ -n "$var" ]; then
+    finding GUARDED S9 static "the zero-padded time field never reaches arithmetic" \
+      "$(ev "$d")" \
+      "\$$var is only ever read by test(1) or by a case, both of which compare in decimal" \
+      "10# would still be tidier, but there is no octal evaluation here to fail"
+  else
+    finding UNKNOWN S9 static "a zero-padded time field is read into something this tool cannot follow" \
+      "$(ev "$d")" \
+      "no 10# anywhere, and no assignment on that line to trace to an arithmetic context" \
+      "check by hand whether that value ever reaches \$(( )), (( )), let or [[ x -ge y ]]"
+  fi
+}
+
+# S10 — the value read from the wakeup file is trusted as a number without being one. A file
+# that holds an empty string, a date, or half a line makes the comparison fail; how it fails
+# depends on the launcher, and none of the ways are good.
+check_S10_wakeup_shape() {
+  if [ -z "$V_WAKEUP" ]; then
+    finding UNKNOWN S10 static "no wakeup variable to follow" "nothing to check the reading of"
+    return
+  fi
+  local w r; w=$(vref "$V_WAKEUP")
+  # code_first_reading, not code_first: on a chain that delegates the comparison to a helper,
+  # the only shell line naming the wakeup file was a log message, and this check accused it of
+  # failing "inside the comparison" — a comparison that line does not contain (exp-008).
+  r=$(code_first_reading "(cat|head|read)[^;|&]*\"?$w|<[[:space:]]*\"?$w") || r=""
+  if [ -z "$r" ]; then
+    finding UNKNOWN S10 static "this launcher does not read the wakeup file into the shell" \
+      "no read of \$$V_WAKEUP outside a log line: the value may be consumed by a helper this tool cannot follow" \
+      "if a helper parses it, that helper is where the shape check belongs"
+    return
+  fi
+  # Four lines, not ten: a launcher validates several unrelated values, and a wider window
+  # picked up the shape test of the NEXT one — a GUARDED built on someone else's proof.
+  local win; win=$(code_window "$(lineno "$r")" 4)
+  case "$win" in
+    *'[!0-9]'*|*'[0-9]'*)
+      finding GUARDED S10 static "the wakeup value is shape-checked after being read" "$(ev "$r")" ;;
+    *)
+      finding EXPOSED S10 static "the wakeup value is used as a number without being checked" \
+        "$(ev "$r")" \
+        "an empty or malformed trigger file then fails inside the comparison" \
+        "under set -e or set -u that ends the session before anything is logged" ;;
+  esac
+}
+
+# S11 — nothing caps the wakeup value. One bad write — a millisecond epoch, a year typed into
+# the wrong field — parks the chain centuries into the future. Nothing is broken, nothing
+# errors, and no session ever runs again. A cap turns a permanent stop into one odd log line.
+check_S11_wakeup_cap() {
+  if [ -z "$V_WAKEUP" ]; then
+    finding UNKNOWN S11 static "no wakeup variable to follow" "nothing to check the bounds of"
+    return
+  fi
+  local w r; w=$(vref "$V_WAKEUP")
+  r=$(code_first_reading "(cat|head|read)[^;|&]*\"?$w|<[[:space:]]*\"?$w") || r=""
+  if [ -z "$r" ]; then
+    finding UNKNOWN S11 static "this launcher does not read the wakeup file into the shell" \
+      "no read of \$$V_WAKEUP outside a log line: a cap, if there is one, is not in this file"
+    return
+  fi
+  local cap
+  cap=$(code_first '\-gt[[:space:]]+.?\$\(\([^)]*(NOW|now|TODAY)[[:space:]]*\+') || cap=""
+  [ -n "$cap" ] || cap=$(code_first '(MAX_AHEAD|MAX_FUTURE|AHEAD_MAX|MAX_DELAY)') || cap=""
+  if [ -n "$cap" ]; then
+    finding GUARDED S11 static "a wakeup far in the future is refused" "$(ev "$cap")"
+  else
+    finding EXPOSED S11 static "nothing caps how far ahead a wakeup may be" \
+      "$(ev "$r")" \
+      "a 13-digit millisecond epoch is a plausible typo and lands several centuries out" \
+      "the chain then waits forever, without one error, and looks perfectly healthy in the scheduler"
+  fi
+}
+
+# S12 — an invariant BETWEEN two settings, which is the class of defect no single-value check
+# can see. The staleness cutoff of the lock must stay strictly above the fallback wakeup
+# delay: when they are equal, a session that outlives the delay sees "stale lock" and "wakeup
+# due" fire at the same instant, and two agents run in the same working copy.
+check_S12_lock_vs_deadman() {
+  local name raw lockv="" lockn="" deadv="" deadn=""
+  while IFS='	' read -r name raw; do
+    [ -n "$name" ] || continue
+    case "$raw" in ''|*[!0-9]*) continue ;; esac
+    case "$name" in
+      *LOCK*AGE*|*LOCK*MAX*|*STALE*) case "$name" in *LIVE*) ;; *) [ -n "$lockv" ] || { lockv="$raw"; lockn="$name"; } ;; esac ;;
+    esac
+    case "$name" in
+      *DEADMAN*|*DEAD_MAN*|*FALLBACK*|*DEADMAN_DELAY*) [ -n "$deadv" ] || { deadv="$raw"; deadn="$name"; } ;;
+    esac
+  done <<EOF
+$(scan_assignments)
+EOF
+  if [ -z "$lockv" ] || [ -z "$deadv" ]; then
+    finding UNKNOWN S12 static "the two settings this invariant relates are not both readable" \
+      "stale-lock cutoff: ${lockn:-not found} / fallback wakeup delay: ${deadn:-not found}"
+    return
+  fi
+  if [ "$lockv" -le "$deadv" ]; then
+    finding EXPOSED S12 static "the stale-lock cutoff is not above the fallback wakeup delay" \
+      "$lockn=$lockv, $deadn=$deadv" \
+      "a session outliving ${deadv}s meets 'wakeup due' and 'stale lock' at the same instant" \
+      "the second probe then deletes a live session's lock and starts a second agent beside it"
+  else
+    finding GUARDED S12 static "the stale-lock cutoff stays above the fallback wakeup delay" \
+      "$lockn=$lockv, which is above $deadn=$deadv"
+  fi
+}
+
+# S13 — a default armed on a variable whose empty value is a security decision. `:=` assigns
+# when the variable is unset OR EMPTY, so the operator who deliberately exports an empty value
+# to disarm a permission bypass gets the bypass anyway, in silence. `=` — one character — is
+# the difference between "unset means default" and "you cannot turn this off".
+check_S13_armed_default() {
+  local l code inner name val bad="" good=""
+  while IFS= read -r l; do
+    code="${l#*:}"
+    case "$code" in *': "${'*'}"'*) ;; *) continue ;; esac
+    inner="${code#*: \"\$\{}"; inner="${inner%%\}\"*}"
+    case "$inner" in
+      *:=*) name="${inner%%:=*}"; val="${inner#*:=}" ;;
+      *=*)  name="${inner%%=*}";  val="${inner#*=}"; 
+            case "$name" in *ARG*|*FLAG*|*OPT*|*PERMISSION*|*AUTH*|*TOKEN*|*SECRET*) [ -n "$good" ] || good="$l" ;; esac
+            continue ;;
+      *) continue ;;
+    esac
+    case "$name" in *ARG*|*FLAG*|*OPT*|*PERMISSION*|*AUTH*|*TOKEN*|*SECRET*) ;; *) continue ;; esac
+    case "$val" in
+      '') [ -n "$good" ] || good="$l" ;;
+      *)  [ -n "$bad" ]  || bad="$l" ;;
+    esac
+  done <<EOF
+$CODE_CACHE
+EOF
+  if [ -n "$bad" ]; then
+    finding EXPOSED S13 static "a security-relevant variable is defaulted with := , not =" \
+      "$(ev "$bad")" \
+      ":= fires when the variable is unset OR empty, so exporting an empty value does not disarm it" \
+      "whoever sets it to nothing on purpose gets the default anyway, and is never told"
+  elif [ -n "$good" ]; then
+    finding GUARDED S13 static "the security-relevant default can be disarmed by an empty value" "$(ev "$good")"
+  else
+    finding UNKNOWN S13 static "no security-relevant defaulted variable found" \
+      "looked for : \"\${NAME:=…}\" where NAME says ARGS, FLAGS, OPTS, PERMISSION, AUTH, TOKEN or SECRET"
+  fi
+}
+
+# =========================================================================================
+# S14, S15, S16 — the family the first thirteen could not see, and the measurement that said so.
+#
+# On 2026-08-30 this tool was pointed at the same launcher before and after three defects were
+# repaired in it, and returned a report IDENTICAL LINE BY LINE on both. All three defects are
+# of one shape: a value the chain produces and never reads back. There is no faulty line to
+# match — the fault is a line that is NOT there — and thirteen checks built to recognise a
+# dangerous pattern are structurally blind to an absent one.
+#
+# So these three are written the other way round. Each one first looks for a CONSTRUCTION (a
+# formatted wakeup, an exit code captured, a paced marker); when the construction is absent it
+# returns UNKNOWN and says which construction it wanted, because a launcher that never does
+# the thing cannot be doing it wrong. Only when the construction is there does it ask whether
+# the reading that gives it meaning exists.
+# =========================================================================================
+
+# The `date` forms that turn an epoch into something a human reads. Both spellings, because
+# the two launchers this kit ships differ on exactly that line — `date -r` on macOS, `date -d
+# "@…"` elsewhere — which is also why the wrapper-function case below is not a nicety: the
+# portable idiom is a one-line helper, and a check that only knew `date` would call the
+# portable launcher "never formats a wakeup" and stay silent on the two chains it ships.
+FMT_DATE_RE='(^|[^A-Za-z_-])date[[:space:]]+(-r[[:space:]]|-d[[:space:]]*.?@|--date=?.?@)'
+
+# fmt_helpers → the names of the launcher's own functions that wrap one of those forms.
+# The body is read in a window rather than by tracking braces: a heuristic, like every
+# [static] finding here, and one that can miss a formatter defined over more than eight lines.
+fmt_helpers() {
+  local name start end win
+  while IFS='	' read -r name start end; do
+    [ -n "$name" ] || continue
+    win=$(code_window "$start" $(( end - start + 1 )))
+    printf '%s' "$win" | grep -qE "$FMT_DATE_RE" && printf '%s\n' "$name"
+  done <<EOF
+$(func_ranges)
+EOF
+}
+
+# func_ranges → "NAME<TAB>FIRST<TAB>LAST" for every function whose braces balance. Used to
+# tell WHERE A LINE RUNS from where it is written: a launcher that keeps its helpers at the top
+# and calls them at the end has its end-of-session code sitting on line 11, and a check that
+# reads line numbers literally calls that "the start of the session".
+#
+# The brace count is a heuristic — a `{` inside a single-quoted sed script would throw it off —
+# so it fails in the SAFE direction: a function whose braces never balance emits nothing, the
+# line keeps its literal position, and the verdict stays the pessimistic one. A heuristic that
+# fails towards GUARDED would manufacture exactly the false calm this whole file argues against.
+func_ranges() {
+  printf '%s\n' "$CODE_CACHE" | awk '
+    {
+      n = $0; sub(/:.*/, "", n); n = n + 0
+      line = $0; sub(/^[0-9]+:/, "", line)
+      if (!inf && match(line, /^[ \t]*(function[ \t]+)?[A-Za-z_][A-Za-z0-9_]*[ \t]*\(\)/)) {
+        name = line; sub(/^[ \t]*/, "", name); sub(/^function[ \t]+/, "", name)
+        sub(/[ \t]*\(\).*/, "", name)
+        start = n; depth = 0; inf = 1
+      }
+      if (inf) {
+        tmp = line
+        o = gsub(/\{/, "", tmp)
+        tmp = line
+        c = gsub(/\}/, "", tmp)
+        depth += o - c
+        if ((o > 0 || c > 0) && depth <= 0) { print name "\t" start "\t" n; inf = 0 }
+      }
+    }'
+}
+
+# effective_line CODELINE → the line number at which that code actually RUNS. Itself when the
+# code is at top level; the line of the LAST call to its enclosing function when it is inside
+# one (last, not first: a helper called both at startup and at the end is doing its end-of-
+# session job at the later call). Falls back to the literal line whenever anything is
+# unresolvable — a function that never balances, or one nothing calls.
+# The answer AND its context come back through globals, never through stdout: a `$( … )` caller
+# is a SUBSHELL, and every global set in here would die at the closing paren. Written down
+# because it happened, here, an hour after the same note was written above resolve_under_sched_path
+# for the same reason — EFF_FUNC came back empty and a trap-installed write stayed EXPOSED.
+EFF_LINE=""
+EFF_FUNC=""
+effective_line() {
+  local n="${1%%:*}" name start end call last=""
+  EFF_FUNC=""
+  while IFS='	' read -r name start end; do
+    [ -n "$name" ] || continue
+    [ "$n" -ge "$start" ] && [ "$n" -le "$end" ] || continue
+    EFF_FUNC="$name"
+    for call in $(code_all "(^|[^A-Za-z_.-])$name([[:space:]]|;|\$|\))" | cut -d: -f1); do
+      [ "$call" -lt "$start" ] || [ "$call" -gt "$end" ] || continue
+      last="$call"
+    done
+    break
+  done <<EOF
+$(func_ranges)
+EOF
+  EFF_LINE="${last:-$n}"
+}
+
+# S14 — a wakeup shown as a time without having been checked as a number. `date -r 0` does not
+# fail: it prints "Thu 01:00" (measured). So a trigger file that is absent, empty or corrupt —
+# the chain dead for good — reads in the log as a perfectly ordinary next wakeup, and the end
+# line is the ONE place anybody ever looks to confirm a wakeup exists. The `|| echo 0` fallback
+# aimed at a failing `cat` is what manufactures the plausible hour.
+check_S14_wakeup_display() {
+  if [ -z "$V_WAKEUP" ]; then
+    finding UNKNOWN S14 static "no wakeup variable to follow" "nothing to check the display of"
+    return
+  fi
+  local w; w=$(vref "$V_WAKEUP")
+  local fmt_re="$FMT_DATE_RE" h
+  for h in $(fmt_helpers); do fmt_re="$fmt_re|(^|[^A-Za-z_-])$h[[:space:]]"; done
+  local sites; sites=$(code_all "$fmt_re" | grep -vE '^[0-9]+:[[:space:]]*(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*\(\)')
+  if [ -z "$sites" ]; then
+    finding UNKNOWN S14 static "this launcher never prints an epoch as a readable time" \
+      "nothing here can turn a missing wakeup into a plausible hour, so there is nothing to check"
+    return
+  fi
+  local site sn sc v a guard inline="" unguarded="" guarded=""
+  while IFS= read -r site; do
+    [ -n "$site" ] || continue
+    sn=$(lineno "$site"); sc="${site#*:}"
+    # Shape 1: the value is read from the trigger and formatted in the same expression. There
+    # is no line between the two on which anyone could have validated it — the defect is not
+    # a missing check, it is a place where no check can go.
+    if printf '%s' "$sc" | grep -qE "(cat|head)[^;|&]*\"?$w"; then
+      [ -n "$inline" ] || inline="$site"
+      continue
+    fi
+    # Shape 2: through a variable. Only the variables on this line whose assignment IS a read
+    # of the trigger file count — otherwise every formatted epoch in the launcher would be
+    # judged against the wakeup's rules.
+    for v in $(printf '%s' "$sc" | grep -oE '\$\{?[A-Za-z_][A-Za-z0-9_]*\}?' | tr -d '${}' | sort -u); do
+      a=$(code_all "^[0-9]+:[[:space:]]*(local[[:space:]]+)?$v=" | grep -E "(cat|head)[^;|&]*\"?$w" | head -n 1) || a=""
+      [ -n "$a" ] || continue
+      if guard=$(guard_for_var "$v" "$(lineno "$a")" "$sn"); then
+        [ -n "$guarded" ] || guarded="$guard"
+      else
+        [ -n "$unguarded" ] || unguarded="$site"
+      fi
+    done
+  done <<EOF
+$sites
+EOF
+  if [ -n "$inline" ]; then
+    finding EXPOSED S14 static "the wakeup is formatted straight out of the file, unchecked" \
+      "$(ev "$inline")" \
+      "date -r 0 does not fail — it prints a plausible hour, measured" \
+      "an absent or corrupt trigger then reads as an ordinary wakeup in the one line you check"
+  elif [ -n "$unguarded" ]; then
+    finding EXPOSED S14 static "the wakeup is formatted without being checked as a number" \
+      "$(ev "$unguarded")" \
+      "no numeric-shape test on that value between the read and this line" \
+      "a dead chain prints the same end line as a healthy one, which is why nobody notices"
+  elif [ -n "$guarded" ]; then
+    # The address printed is the GUARD's, not the formatting site's — same rule as S5. A
+    # GUARDED whose evidence points at the value rather than at its protection is unfalsifiable
+    # by reading: delete the guard and the report still cites a line that is still there.
+    finding GUARDED S14 static "the wakeup is validated before it is shown as a time" \
+      "$(ev "$(code_first "^$guarded:")")"
+  else
+    finding UNKNOWN S14 static "an epoch is formatted here, but not one from the trigger file" \
+      "no formatted value could be traced back to a read of \$$V_WAKEUP" \
+      "if a helper script prints the wakeup, point this tool at that script too"
+  fi
+}
+
+# first_use_after PATTERN LINE -> the first matching code line strictly after LINE, or nothing.
+first_use_after() {
+  local l n
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    n=$(lineno "$l")
+    [ "$n" -gt "$2" ] || continue
+    printf '%s' "$l"; return 0
+  done <<EOF
+$(code_all "$1")
+EOF
+  return 1
+}
+
+# S15 — the agent's exit code, written to the log and never read. A chain exiting 127 at every
+# wakeup — binary gone after a runtime upgrade, expired authentication, lost permissions — wakes
+# up for ever and produces nothing, and the log keeps exactly the shape of a healthy chain: a
+# header, an end line, a wakeup. It is the quietest failure mode there is, and the number that
+# names it is sitting in the log, unread.
+check_S15_exit_code_read() {
+  local ret; ret=$(agent_return_line) || ret=""
+  if [ -z "$ret" ]; then
+    finding UNKNOWN S15 static "no agent invocation found to follow" \
+      "this check needs to see the call whose exit code it would follow"
+    return
+  fi
+  # The capture must come after the agent returns: `NAP_RC=$?` from a helper run at startup is
+  # someone else's status, and accusing the launcher of not reading it would be a finding about
+  # a value that was never the agent's.
+  local l n cap="" var="" capn=0
+  while IFS= read -r l; do
+    # `[ -n "$l" ]` first: when no `NAME=$?` exists at all -- the case this check exists to
+    # answer UNKNOWN on, and the one T120 covers -- the here-doc expands to one empty line,
+    # `read` succeeds once, and `[ "" -ge "$ret" ]` printed a bash error on stderr, under a
+    # report whose whole argument is that it says what it could not measure.
+    [ -n "$l" ] || continue
+    n=$(lineno "$l")
+    [ "$n" -ge "$ret" ] || continue
+    # Everything left of `=$?`, then the identifier that ends it. The obvious one-shot regex
+    # (`.*([A-Za-z_][A-Za-z0-9_]*)=\$\?`) is wrong and quietly so: the leading `.*` is greedy,
+    # so on `AGENT_RC=$?` it hands back `C` — one letter, which then matched a bracket
+    # expression forty lines away and earned a GUARDED for a code nothing reads.
+    var=$(printf '%s' "${l#*:}" | awk -F'=[$][?]' 'NF > 1 { print $1 }' \
+          | grep -oE '[A-Za-z_][A-Za-z0-9_]*$' | head -n 1)
+    [ -n "$var" ] || continue
+    cap="$l"; capn="$n"; break
+  done <<EOF
+$(code_all '[A-Za-z_][A-Za-z0-9_]*=\$\?([[:space:]]|;|$)')
+EOF
+  if [ -z "$cap" ]; then
+    finding UNKNOWN S15 static "the agent's exit code is never captured into a variable" \
+      "no NAME=\$? after the agent returns: the launcher may branch on the call directly (if ! agent …)" \
+      "this check can only follow a status that was put in a variable"
+    return
+  fi
+  # The POSITIVE pattern, and it is the whole point of this check: not "is it printed" but
+  # "is it ever USED". A test, a case, an arithmetic expansion, an exit or a return — anything
+  # that makes the number change what the launcher does. A log line is not one of those, and
+  # naming the message commands to exclude them would be a list that every foreign chain
+  # spells differently (log, log_line, say, notify…), so nothing is excluded: a use is
+  # recognised by its own shape.
+  local v; v=$(vref "$var")
+  # Every pattern is searched AFTER the capture line, never from line 1. `RC` is a name people
+  # reuse: a launcher testing `RC` for its lock at the top and reassigning it from the agent at
+  # the bottom earned GUARDED, and the address printed was a test of some other command's
+  # status. A use that runs before the value exists is not a use of that value.
+  local CMD_POS='(^[0-9]+:[[:space:]]*|;[[:space:]]*|&&[[:space:]]*|\|\|[[:space:]]*|(if|elif|while|until|then|else)[[:space:]]+|\{[[:space:]]*|![[:space:]]*)'
+  local use=""
+  # The bracket must be in COMMAND position too, and for exactly the reason the exit/return
+  # branch below already was: `echo "=== End [rc $BOT_RC] — …"` matched a bare bracket pattern
+  # and was reported as the reading that excuses the defect. One of the two branches had been
+  # hardened and the other, tried first, had not.
+  use=$(first_use_after "${CMD_POS}\[{1,2}[^]]*$v" "$capn") || use=""
+  [ -n "$use" ] || use=$(first_use_after "${CMD_POS}case[[:space:]]+\"?$v" "$capn") || use=""
+  [ -n "$use" ] || use=$(first_use_after "\\\$\\(\\([^)]*${var}[^)]*\\)\\)" "$capn") || use=""
+  [ -n "$use" ] || use=$(first_use_after "${CMD_POS}(exit|return)[[:space:]]+\"?$v" "$capn") || use=""
+  if [ -n "$use" ]; then
+    finding GUARDED S15 static "the agent's exit code changes what the launcher does" "$(ev "$use")"
+  else
+    finding EXPOSED S15 static "the agent's exit code is captured and never acted on" \
+      "$(ev "$cap")" \
+      "\$$var is not tested, switched on, computed with, or exited with anywhere in this file" \
+      "a chain exiting 127 at every wakeup leaves a log shaped exactly like a healthy one"
+  fi
+}
+
+# S16 — the spacing marker written at the START of the session and never at its end. Minimum
+# spacing is measured from that marker, so a four-hour session leaves a four-hour-old one: at
+# the next probe the floor is long past, it does not bite, and a new session starts within
+# minutes. The one mechanism pacing the chain protects nothing after exactly the sessions that
+# consume the most. Note what the fix is NOT: moving the startup write to the end. A session
+# that dies mid-run never reaches the end, and a missing marker is what loops the chain at
+# every probe. Both writes, or the cure is the next outage.
+check_S16_spacing_marker() {
+  if [ -z "$V_MARKER" ]; then
+    finding UNKNOWN S16 static "no spacing-marker variable found" \
+      "looked for an assignment whose name or filename says MARKER, LAST or STAMP"
+    return
+  fi
+  local m; m=$(vref "$V_MARKER")
+  # The marker only means something if something PACES on it. A launcher that stamps a file
+  # nobody reads has no spacing to protect, and saying otherwise would be an accusation about
+  # a mechanism that does not exist here.
+  local rd; rd=$(code_first_reading "(cat|head|read|stat)[^;|&]*\"?$m") || rd=""
+  if [ -z "$rd" ]; then
+    finding UNKNOWN S16 static "nothing in this launcher reads the spacing marker" \
+      "\$$V_MARKER is written here but the spacing, if there is one, is computed elsewhere"
+    return
+  fi
+  local ret; ret=$(agent_return_line) || ret=""
+  if [ -z "$ret" ]; then
+    finding UNKNOWN S16 static "cannot tell the start of the session from its end" \
+      "no wait and no agent invocation to divide the file on"
+    return
+  fi
+  local writes; writes=$(code_all ">>?[[:space:]]*\"?$m\"?([[:space:]]|;|&|\)|$)")
+  if [ -z "$writes" ]; then
+    finding UNKNOWN S16 static "nothing in this launcher writes the spacing marker" \
+      "the marker is read here and stamped elsewhere (the agent, or a helper script)"
+    return
+  fi
+  local l n f tr after="" before=""
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    # effective_line, not lineno: the write may sit inside a helper defined at the top of the
+    # file and called at the very end — measured on a foreign-idiom launcher that this check
+    # accused of "only ever dating the start" while its `finish` function did exactly the
+    # right thing, twenty lines further down than the definition it was reading.
+    effective_line "$l"; n="$EFF_LINE"; f="$EFF_FUNC"
+    # A write installed as an exit handler runs at the end BY DEFINITION, and its line number
+    # says nothing about when. `finish() { date +%s > "$STAMP"; }` plus `trap finish EXIT` — the
+    # most careful spelling of this, since it survives a session killed mid-run — was being
+    # reported as "only ever dates the START". Both spellings are read: the trap that names the
+    # function, and the trap whose body IS the write.
+    tr=""
+    case "${l#*:}" in *trap*) tr="$l" ;; esac
+    if [ -z "$tr" ] && [ -n "$f" ]; then
+      tr=$(code_first "(^|[^A-Za-z_-])trap[[:space:]][^;]*$f") || tr=""
+    fi
+    if [ -n "$tr" ]; then [ -n "$after" ] || after="$tr"
+    elif [ "$n" -ge "$ret" ]; then [ -n "$after" ] || after="$l"
+    else [ -n "$before" ] || before="$l"; fi
+  done <<EOF
+$writes
+EOF
+  if [ -n "$after" ]; then
+    finding GUARDED S16 static "the spacing marker is stamped again when the session ends" "$(ev "$after")"
+  else
+    finding EXPOSED S16 static "the spacing marker only ever dates the START of the session" \
+      "$(ev "$before")" \
+      "the spacing is measured from this stamp, so a session lasting longer than it consumes it" \
+      "after the longest sessions the floor does not bite at all, and nothing says so"
+  fi
+}
+
+# =========================================================================================
+# The questions no inspection can answer. They are not a sales pitch for anything: they are
+# the holes an instrument does not fill, and the report says so.
+# =========================================================================================
+print_questions() {
+  cat <<'ASK'
+
+[ask] five things this tool cannot see — answer them yourself
+  Q1  Does every session write a journal entry, including the empty ones? A session with no
+      entry did not happen.
+  Q2  Are your decisions written down WITH the options you rejected and why? Without that,
+      every amnesiac session re-proposes the option you refused last year.
+  Q3  Does your prompt tell the agent, when it meets a usage limit, to reschedule itself onto
+      the announced reset time? That is the only net that survives a limit.
+  Q4  Do your attempts have a written budget BEFORE they start, and a mandatory post-mortem
+      when it runs out?
+  Q5  When did you last read your agent's output with eyes that had no context?
+ASK
+}
+
+# =========================================================================================
+# Main
+# =========================================================================================
+
+# Present tense, on purpose. This line is printed before a single check has run, so the old
+# past tense ("nothing was written") asserted a result that had not happened yet — a free
+# target on a tool whose whole pitch is not claiming more than it measured.
+printf 'agent-chain-doctor %s — read-only: it writes nothing and opens no socket.\n' "$VERSION"
+printf 'Verify that yourself: bash tests/run-tests.sh, cases T35 to T39.\n'
+
+if [ -n "$LAUNCHER" ]; then
+  if [ ! -f "$LAUNCHER" ]; then
+    echo "agent-chain-doctor: '$LAUNCHER' is not a file." >&2
+    exit 2
+  fi
+  if ! is_text_script "$LAUNCHER"; then
+    echo "agent-chain-doctor: '$LAUNCHER' does not start with '#!' — this tool reads shell launchers, not binaries." >&2
+    exit 2
+  fi
+  MARKER_SCORE=$(markers_of "$LAUNCHER")
+  find_scheduler_for_launcher || note "no scheduler entry matched this launcher — L1 and L12 will say UNKNOWN. Point at it with --plist if you have one."
+elif [ -n "$PLIST" ]; then
+  # `--plist FILE` on its own is the documented way out when discovery misses the chain, and
+  # it used to be dropped on the floor here: discovery ran anyway, found some OTHER chain, and
+  # reported on it at exit 0. The user who mistyped the path got a confident diagnosis of a
+  # chain they had not named. The plist now decides, or the tool refuses.
+  if ! read_plist "$PLIST"; then
+    echo "agent-chain-doctor: '$PLIST' could not be read as a LaunchAgent plist." >&2
+    exit 2
+  fi
+  if [ -z "$SCHED_SCRIPT" ] || [ ! -f "$SCHED_SCRIPT" ]; then
+    echo "agent-chain-doctor: '$PLIST' names no readable script to diagnose." >&2
+    echo "  (its ProgramArguments point at: ${SCHED_SCRIPT:-nothing this tool could resolve})" >&2
+    exit 2
+  fi
+  if ! is_text_script "$SCHED_SCRIPT"; then
+    echo "agent-chain-doctor: '$SCHED_SCRIPT' does not start with '#!' — this tool reads shell launchers, not binaries." >&2
+    exit 2
+  fi
+  LAUNCHER="$SCHED_SCRIPT"
+  SCHEDULER="launchd"
+  MARKER_SCORE=$(markers_of "$LAUNCHER")
+  read_sched_status || true
+else
+  discover_launchd || discover_cron || discover_systemd || true
+  if [ -z "$LAUNCHER" ]; then
+    cat >&2 <<'NOCHAIN'
+
+No agent chain found.
+
+This tool looked at your own user's LaunchAgents, your crontab and your systemd user timers,
+and found no scheduled script that mentions at least two of: an agent CLI, a lock, a wakeup
+file, a prompt file, a keep-awake wrapper.
+
+That is not a verdict on your chain — it is this tool failing to find it. Name the launcher
+yourself and it will guess nothing:
+
+    agent-chain-doctor /path/to/your/session.sh
+
+NOCHAIN
+    exit 2
+  fi
+fi
+
+load_assignments || true
+classify_paths
+load_code || true
+
+# A launcher with no log, no lock, no wakeup file and no prompt file is not a chain this tool
+# can say anything true about — and a report full of findings about it would be the exact
+# wolf-crying this tool exists not to do. Refuse, and say what would make it work.
+if [ -z "$P_LOG$P_LOCK$P_WAKEUP$P_PROMPT" ]; then
+  cat >&2 <<NOSTATE
+
+$LAUNCHER
+looks like a script, but not like an agent chain: it declares no log, no lock, no wakeup
+file and no prompt file that this tool could resolve.
+
+Rather than report on files it has not found, it stops here. If this really is your launcher,
+its control paths are built in a way this tool cannot follow (computed at runtime, sourced
+from another file, or passed in by the scheduler) — and every finding it could print would be
+about a chain it has not actually located.
+
+NOSTATE
+  exit 2
+fi
+
+printf '\nCHAIN\n'
+if [ -n "$SCHEDULER" ]; then
+  printf '  %-11s %s · %s%s\n' "scheduler" "$SCHEDULER" "${SCHED_DETAIL:-?}" \
+    "${SCHED_STATUS:+ (last status $SCHED_STATUS)}"
+else
+  printf '  %-11s %s\n' "scheduler" "not identified — diagnosing the launcher alone"
+fi
+# The fallback used to read "?/5" — a THIRD hand-written copy of the marker denominator, and
+# one the case that guards the other two does not look at, because it lives nowhere near
+# markers_of. It says nothing a bare "?" does not: the numerator is what is unknown here. So it
+# is gone rather than guarded — the first question the gate asks about a published count.
+printf '  %-11s %s   (matched %s markers)\n' "launcher" "$LAUNCHER" "${MARKER_SCORE:-?}"
+printf '  %-11s %s\n' "state dir" "${STATE_DIR:-not deduced}"
+[ -n "$P_PROMPT" ] && printf '  %-11s %s\n' "prompt" "$P_PROMPT"
+[ -n "$AGENT_BIN" ] && printf '  %-11s %s\n' "agent" "$AGENT_BIN"
+[ -n "$DISCOVERY_NOTES" ] && printf '%s' "$DISCOVERY_NOTES"
+
+check_L1_exit_status
+check_L2_silence
+check_L3_err_file
+check_L4_wakeup_shape
+check_L5_wakeup_range
+check_L6_lock_shape
+check_L7_stale_lock
+check_L8_long_session
+check_L9_exec_bit
+check_L10_sleep
+check_L11_prompt
+check_L12_path
+check_L13_err_divergence
+
+check_S1_wakeup_write
+check_S2_trap_coverage
+check_S3_trap_exits
+check_S4_lock_failure
+check_S5_age_fallback
+check_S6_idle_division
+check_S7_keepawake
+check_S8_watchdog
+check_S9_octal_hour
+check_S10_wakeup_shape
+check_S11_wakeup_cap
+check_S12_lock_vs_deadman
+check_S13_armed_default
+check_S14_wakeup_display
+check_S15_exit_code_read
+check_S16_spacing_marker
+
+printf '\nFINDINGS\n'
+[ -n "$OUT_EXPOSED" ] && printf '%s' "$OUT_EXPOSED"
+if [ "$VERBOSE" -eq 1 ]; then
+  [ -n "$OUT_GUARDED_F" ] && printf '%s' "$OUT_GUARDED_F"
+  [ -n "$OUT_UNKNOWN_F" ] && printf '%s' "$OUT_UNKNOWN_F"
+else
+  [ -n "$OUT_GUARDED_S" ] && printf '%s' "$OUT_GUARDED_S"
+  [ -n "$OUT_UNKNOWN_S" ] && printf '%s' "$OUT_UNKNOWN_S"
+fi
+printf '\n  %s exposed · %s guarded · %s unknown\n' "$N_EXPOSED" "$N_GUARDED" "$N_UNKNOWN"
+[ "$VERBOSE" -eq 0 ] && [ $((N_GUARDED + N_UNKNOWN)) -gt 0 ] \
+  && printf '  (--verbose prints the evidence under GUARDED and UNKNOWN too)\n'
+
+print_questions
+
+# The number in the next sentence is the SUM OF THE THREE COUNTERS printed just above, and
+# never a literal. It was a literal `26`, correct on the day it was written and false from
+# the commit that added S14/S15/S16 without touching it — so from 2026-08-30 to 2026-09-04
+# the tool told every user it had run 26 checks while running 29, on the one sentence they
+# read to size what was covered. Nothing was ignorant of the right number: the
+# line directly above printed 0+23+6, and the suite asserted 29 twice in the same run. The
+# two numbers simply never met. A count the product PRINTS is recomputed at print time
+# (D-017 R3), and T71b now confronts this sentence with the catalogue read from this file.
+printf '\nZero EXPOSED means "these %s checks found nothing". It does not mean your chain is fine.\n' \
+  "$((N_EXPOSED + N_GUARDED + N_UNKNOWN))"
+cat <<'TAIL'
+The checks come from the failures of ONE chain, and the degradations they were tested
+against were built by the same author — so how much they MISS is unknown, and will stay
+unknown. UNKNOWN means unknown, not fine.
+
+This tool sees the parts of your chain that leave traces on disk. It does not see your
+agent's judgement, your prompt's contract, or anything it could not read.
+TAIL
+
+[ "$N_EXPOSED" -gt 0 ] && exit 1
+exit 0
