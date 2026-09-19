@@ -1758,8 +1758,18 @@ agent_invocation() {
   local l name
   while IFS= read -r l; do
     [ -n "$l" ] || continue
+    # -i, not just [A-Za-z_]: the alternation READS case-insensitive and was not, so the
+    # ordinary shell convention for a local — `claude_bin="$(command -v claude)"` then
+    # `"$claude_bin" -p …` — found no invocation at all, and every check downstream of this
+    # function answered UNKNOWN. Measured on yvoolab/claude-code-cron (I-033): a runner.sh
+    # under cron, the canonical form this tool advertises, reported 29 UNKNOWN out of 29 while
+    # its `claude -p` ran genuinely unbounded. The name is folded to upper case BEFORE the
+    # exclusion list below, so `$bot_home` and `$agent_pid` keep being excluded by the same
+    # patterns as their capitalised twins — a case-insensitive match with a case-sensitive
+    # exclusion would reintroduce F-D(2) through the other door.
     name=$(printf '%s' "${l#*:}" \
-           | grep -oE '\$\{?[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*\}?' | head -n 1 | tr -d '${}')
+           | grep -oiE '\$\{?[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*\}?' | head -n 1 | tr -d '${}' \
+           | tr 'a-z' 'A-Z')
     # The pattern is deliberately loose — a tool that only bounds the CLI it has heard of bounds
     # nothing on a foreign chain — but loose enough that `mkdir -p "$AGENT_HOME/state"` and
     # `kill "$AGENT_PID"` matched it. Measured, not feared: on a launcher whose first running
@@ -1771,7 +1781,7 @@ agent_invocation() {
     esac
     printf '%s' "$l"; return 0
   done <<EOF
-$(code_all_running '\$\{?[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*\}?')
+$(code_all_running '\$\{?[A-Za-z_]*([Cc][Ll][Ii]|[Cc][Mm][Dd]|[Bb][Ii][Nn]|[Aa][Gg][Ee][Nn][Tt])[A-Za-z_]*\}?')
 EOF
   l=$(code_first_running '(^|[^A-Za-z_-])(claude|codex|aider|gemini|ollama|cursor-agent|goose)([[:space:]]|$)') || return 1
   printf '%s' "$l"

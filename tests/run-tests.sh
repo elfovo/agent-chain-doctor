@@ -1170,6 +1170,35 @@ if printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | grep -q ":${WANT}:"; then
 else bad "T86  S8  the evidence is the line that RUNS the agent, not a guard or a declaration" \
   "wanted line $WANT ; got: $(printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | sed -n 2p | sed 's/^ *//')"; fi
 
+# I-033 — the variable holding the agent binary was only recognised SPELLED IN CAPITALS. The
+# name pattern is `[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*`, which reads as case-insensitive and
+# is not: the alternation is uppercase-only. A launcher writing `claude_bin="$(command -v
+# claude)"` then `"$claude_bin" -p …` — lowercase, the ordinary shell convention for a local —
+# has no invocation found at all, so S8, S16 and everything else downstream of agent_invocation
+# answer UNKNOWN. Found on `yvoolab/claude-code-cron`, a third-party chain of exactly the form
+# this tool advertises: a runner.sh under cron. Its report was 29 UNKNOWN out of 29 — and its
+# `claude -p` is genuinely unbounded, so the one verdict it had earned was the one it withheld.
+# The existence guard `command -v claude` is correctly skipped, which is why nothing caught it.
+make_chain s8lower
+mutate '/^( sleep "\$TIMEOUT"/,+2d' '/WATCHDOG_PID/d' '/^wait "\$AGENT_PID"/d' \
+       's|BOT_CLI|claude_bin|g'
+doctor
+expect "T215 S8  the agent variable is found when it is spelled in lower case" EXPOSED S8
+
+# …and the exclusion list that keeps `$BOT_HOME` and `$AGENT_PID` from being read as binaries
+# has to travel with it: made case-insensitive on the match side only, `$bot_home` would become
+# "the line that runs the agent" and the accusation would carry an address at which nothing is
+# launched — the exact defect F-D(2) fixed, reintroduced through the other door.
+make_chain s8lowerdir
+mutate '/^( sleep "\$TIMEOUT"/,+2d' '/WATCHDOG_PID/d' '/^wait "\$AGENT_PID"/d' \
+       's|BOT_CLI|agent_exe|g' 's|BOT_HOME|bot_home|g'
+WANT=$(grep -n '^ *"\$agent_exe" -p\|^ *caffeinate -i "\$agent_exe"' "$LAUNCHER" | head -n 1 | cut -d: -f1)
+doctor
+if printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | grep -q ":${WANT}:"; then
+  ok "T216 S8  a lower-case \$bot_home is still not the line that runs the agent"
+else bad "T216 S8  a lower-case \$bot_home is still not the line that runs the agent" \
+  "wanted line $WANT ; got: $(printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | sed -n 2p | sed 's/^ *//')"; fi
+
 # F-E — L5 printed "overdue by 28 h" as its evidence UNDER the label "next wakeup is within a
 # sane range". A wakeup due 28 hours ago is the silent death this tool exists to name; verdict
 # and proof contradicted each other inside the same finding.
