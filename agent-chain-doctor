@@ -677,7 +677,30 @@ expand_value() {  # $1 raw  $2 depth → value with $VARs replaced, or a marked 
     *'$(cd '*|*'$(dirname '*)
       ldir=$(cd "$(dirname "$LAUNCHER")" 2>/dev/null && pwd) || ldir=""
       if [ -n "$ldir" ]; then
-        s=$(printf '%s' "$s" | sed -e 's|\$(cd .*pwd)|'"$ldir"'|' -e 's|\$(dirname "\$0")|'"$ldir"'|g')
+        # The launcher's own directory, under both spellings.
+        s=$(printf '%s' "$s" | sed -e 's|\$(dirname "\$0")|'"$ldir"'|g' \
+                                   -e 's|\$(dirname "\${BASH_SOURCE\[0\]}")|'"$ldir"'|g')
+        # `$(cd X && pwd)` is X. The SUFFIX of X is the whole point and the old pattern —
+        # `s|\$(cd .*pwd)|$ldir|`, greedy — ate it: `$(cd "$SCRIPT_DIR/../.." && pwd)`, the
+        # standard way a script finds its repo root, resolved to the launcher's own directory,
+        # two levels too low. L2 then reported a log THAT EXISTS as "never created", in the
+        # [live] register the header of this file declares without reserve. Measured in I-038
+        # on t0dorakis/murmur. A `..` left in the path is fine: the kernel resolves it, and
+        # this tool only ever reads.
+        local cpre crest carg cpost n
+        for n in 1 2 3 4; do
+          case "$s" in *'$(cd '*) ;; *) break ;; esac
+          cpre="${s%%\$(cd *}"; crest="${s#*\$(cd }"
+          case "$crest" in *'pwd)'*) ;; *) break ;; esac
+          cpost="${crest#*pwd)}"; carg="${crest%%pwd)*}"
+          # Trim what separates the argument from `pwd`: `&&`, `;`, `|` or plain space.
+          carg="${carg%"${carg##*[!\ ]}"}"
+          case "$carg" in *'&&') carg="${carg%&&}" ;; *';') carg="${carg%;}" ;; esac
+          carg="${carg%"${carg##*[!\ ]}"}"
+          carg="${carg#\"}"; carg="${carg%\"}"
+          [ -n "$carg" ] || break
+          s="$cpre$carg$cpost"
+        done
       fi ;;
   esac
   [ "$depth" -ge 4 ] && { printf '%s' "$s"; return 0; }
@@ -807,8 +830,22 @@ classify_paths() {
     case "$name$vtail" in
       *[Pp][Rr][Oo][Mm][Pp][Tt]*)                  kind="prompt" ;;
     esac
-    case "$name" in
-      LOG|*_LOG|LOGFILE|*_LOGFILE)                 kind="log" ;;
+    # The log kind was the only one of the six tested by an EXACT, CASE-SENSITIVE list, in a
+    # function whose five other kinds all use case-insensitive classes. `LOG_FILE` — the
+    # commonest spelling there is — was in none of them, and neither was any lower-case name,
+    # although `lock_dir` in lower case has always been read as a lock. Measured in I-038: the
+    # same launcher, renamed LOG → LOG_FILE, went from "the main log does not exist at all" to
+    # "no main log path found". Two chains of the I-033 population spell it that way.
+    # Folded to upper case rather than spelled twice — the same remedy S84 applied to
+    # agent_invocation, and for the same defect.
+    # The list stays a list of WHOLE TOKENS, not a substring test: `CATALOG_ROOT`, `LOGIN_SHELL`
+    # and `DIALOG` all contain "log", and a chain of the population declares `catalog_root=`.
+    # Promoting a catalogue to "the main log" would be a [live] accusation about a file that
+    # was never a log. LOG_DIR is left out on purpose: a directory is not the log.
+    local nu; nu=$(printf '%s' "$name" | tr 'a-z' 'A-Z')
+    case "$nu" in
+      LOG|LOGFILE|LOGPATH|LOG_FILE|LOG_PATH|*_LOG|*_LOGFILE|*_LOGPATH|*_LOG_FILE|*_LOG_PATH)
+                                                   kind="log" ;;
     esac
     case "$name$vtail" in
       *[Mm][Aa][Rr][Kk][Ee][Rr]*|*[Ll][Aa][Ss][Tt]*) [ -n "$kind" ] || kind="marker" ;;
@@ -1871,6 +1908,21 @@ check_S2_trap_coverage() {
   if [ -z "$V_LOCK$P_LOCK" ]; then
     finding UNKNOWN S2 static "no lock found, so nothing here needs releasing on a signal" \
       "this check only means something for a launcher that takes a lock"
+    return
+  fi
+  # A lock held by flock(1) on a descriptor is released BY THE KERNEL when the process dies —
+  # killed, booted out or rebooted. No trap can improve on that and none is required, so the
+  # consequence this check prints ("it leaves the lock behind and every later session exits on
+  # it") names a mechanism the idiom does not have. That is a false EXPOSED on the form most
+  # shell advice recommends, i.e. exactly what L12's comment calls accusing "precisely the
+  # chains that took its advice". Measured in I-038.
+  # code_first_running, not code_first, and for the reason S8 already pays for six lines down:
+  # `echo "no flock here, we use mkdir"` is a message, not a lock.
+  local fl; fl=$(code_first_running '(^|[^A-Za-z_-])flock([[:space:]]|$)') || fl=""
+  if [ -n "$fl" ]; then
+    finding GUARDED S2 static "the lock is held by flock, which the kernel releases on death" \
+      "$(ev "$fl")" \
+      "an advisory lock on a descriptor does not outlive the process, so no trap has to free it"
     return
   fi
   local traps covered="" first="" l sigs

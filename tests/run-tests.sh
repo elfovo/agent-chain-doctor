@@ -1199,6 +1199,85 @@ if printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | grep -q ":${WANT}:"; then
 else bad "T216 S8  a lower-case \$bot_home is still not the line that runs the agent" \
   "wanted line $WANT ; got: $(printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | sed -n 2p | sed 's/^ *//')"; fi
 
+# =========================================================================================
+# I-038 (S85) — trois motifs mesures plus etroits que la phrase qui les entoure. Chacun a ete
+# reproduit sur fixture minimale AVANT tout correctif ; la mesure complete est dans
+# 20_experiences/exp-008-livrables/corpus-i033/mesure-i038-2026-09-20.md.
+# =========================================================================================
+
+# D1 — classify_paths() classe cinq genres sur six avec des classes insensibles a la casse
+# (*[Ll][Oo][Cc][Kk]*, *[Ee][Rr][Rr]*, *[Pp][Rr][Oo][Mm][Pp][Tt]*). Le genre LOG est le seul
+# teste par une liste exacte et sensible a la casse — LOG|*_LOG|LOGFILE|*_LOGFILE — et
+# `LOG_FILE`, l'orthographe la plus courante en shell, n'y figure pas. Mesure : le meme
+# lanceur a un sed pres passe de "the main log does not exist at all" a "no main log path
+# found in the launcher". Un repli sur une valeur finissant par `.log` masque le cas simple
+# et laisse le cas reel entier — d'ou une valeur qui ne finit PAS par .log ici.
+# Present dans la population I-033 : ryanlewis/claude-cron et t0dorakis/murmur ecrivent tous
+# deux LOG_FILE=. Meme famille que le defaut de casse corrige en S84 sur agent_invocation.
+make_chain d1logfile
+mutate 's|^RUNLOG="\$BOT_STATE/run.log"|LOG_FILE="$BOT_STATE/run.out"|' 's|\$RUNLOG|$LOG_FILE|g' 's|\${RUNLOG}|${LOG_FILE}|g'
+rm -f "$STATE/run.log"
+# Un reveil ECHU, sinon L2 s'arrete sur sa branche prudente ("no session has run yet, and none
+# is due") et le test serait vert des qu'un chemin quelconque est trouve — y compris le mauvais.
+printf '%s\n' "$(( $(date +%s) - 600 ))" > "$STATE/run.next"
+doctor
+expect_evidence "T217 L2  \$LOG_FILE is read as the main log, like \$LOG and \$RUNLOG" \
+  EXPOSED L2 "run.out"
+
+# …et la correction ne doit pas transformer n'importe quel nom contenant "log" en journal :
+# un LOGIN_SHELL ou un CATALOG_ROOT n'est pas un fichier de journal, et `render-routine.sh`
+# du corpus I-033 declare precisement `catalog_root=`. Sans ce cas, elargir D1 par un simple
+# *[Ll][Oo][Gg]* ferait entrer le catalogue d'un depot etranger comme "le journal principal",
+# c'est-a-dire une accusation [live] sur un fichier qui n'a jamais ete un log.
+make_chain d1catalog
+mutate 's|^RUNLOG="\$BOT_STATE/run.log"|CATALOG_ROOT="$BOT_STATE/catalog"\nRUNLOG="$BOT_STATE/run.log"|'
+doctor
+expect_evidence "T218 L2  a CATALOG_ROOT is not promoted to 'the main log'" \
+  GUARDED L2 "run.log"
+
+# D3 — expand_value() reecrit l'idiome des chemins relatifs par un unique sed,
+# `s|\$(cd .*pwd)|$ldir|`, dont le `.*` avale le suffixe relatif. Consequence mesuree :
+# `PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"` — la facon standard dont un script trouve
+# la racine de son depot — resout vers le repertoire du lanceur, deux niveaux trop bas, et L2
+# accuse alors un journal QUI EXISTE de "never created", en registre [live], c'est-a-dire
+# celui que l'en-tete du fichier declare sans reserve. Present chez t0dorakis/murmur (x2).
+make_chain d3updir
+mkdir -p "$ROOT/logs"
+printf 'une ligne\n' > "$ROOT/logs/session.log"
+mutate 's|^RUNLOG="\$BOT_STATE/run.log"|PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." \&\& pwd)"\nRUNLOG="$PROJECT_ROOT/logs/session.log"|'
+doctor
+expect_evidence "T219 L2  \$(cd \"\$X/..\" \&\& pwd) keeps the relative suffix" \
+  GUARDED L2 "logs/session.log"
+
+# …et le cas sans suffixe doit continuer de marcher : `$(cd "$(dirname "$0")" && pwd)` EST le
+# repertoire du lanceur, et c'est la forme que la fixture propre utilise deja. Un correctif qui
+# ne traiterait que le cas a suffixe casserait celui-la en silence.
+make_chain d3plain
+doctor
+expect_no_exposed "T220 L2  \$(cd \"\$(dirname \"\$0\")\" \&\& pwd) still resolves to the launcher dir"
+
+# D5 — S2 conclut "the launcher takes a lock and installs no trap at all", et sa consequence
+# nommee est "killed, booted out or rebooted, it leaves the lock behind". Sur un verrou
+# `flock` pose sur un descripteur — le verrou consultatif POSIX, celui que tout le monde
+# recommande — LE NOYAU LE LIBERE A LA MORT DU PROCESSUS. Aucun trap n'est requis et le
+# mecanisme de l'accusation est absent de l'idiome : un faux EXPOSED sur la forme correcte,
+# exactement ce que le commentaire de L12 appelle "accuses precisely the chains that took its
+# advice".
+make_chain d5flock
+mutate '/^trap /d' 's|^GATE="\$BOT_STATE/run.lock"|GATE="$BOT_STATE/run.lock"\nexec 9>"$GATE"\nflock -n 9 \|\| exit 0|'
+doctor
+expect_because "T221 S2  a flock on a descriptor needs no trap: the kernel releases it" \
+  GUARDED S2 "flock"
+
+# …et la porte ne doit pas s'ouvrir sur le mot `flock` ecrit n'importe ou : un verrou par
+# repertoire, avec un `flock` seulement mentionne dans un message, garde son EXPOSED. Sans ce
+# cas, "le fichier contient flock" deviendrait une excuse universelle au trap manquant.
+make_chain d5flockword
+mutate '/^trap /d' 's|^GATE="\$BOT_STATE/run.lock"|GATE="$BOT_STATE/run.lock"\necho "no flock here, we use mkdir"|'
+doctor
+expect_because "T222 S2  the WORD flock in a message does not excuse a missing trap" \
+  EXPOSED S2 "no trap at all"
+
 # F-E — L5 printed "overdue by 28 h" as its evidence UNDER the label "next wakeup is within a
 # sane range". A wakeup due 28 hours ago is the silent death this tool exists to name; verdict
 # and proof contradicted each other inside the same finding.
