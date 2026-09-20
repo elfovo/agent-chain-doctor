@@ -60,7 +60,39 @@ if ! not_root "$(id -u 2>/dev/null)" && [ "${ALLOW_ROOT:-0}" != "1" ]; then
 fi
 
 ok()   { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-bad()  { FAIL=$((FAIL + 1)); RED_LIST="$RED_LIST
+
+# THE SECOND PRECONDITION THIS SUITE CANNOT ASSERT FROM INSIDE, and it was costing fifteen
+# phantom failures. The cases named below all assert a fact the tool reads out of a launchd
+# PLIST, and reading one needs plutil(1) — which ships with macOS and exists nowhere else. The
+# tool degrades correctly without it (`command -v plutil || return 1`, twice); the SUITE did
+# not, so on Linux it printed "15 red" and named checks that are not broken. That is the exact
+# error the tool under test refuses to make about a chain: reporting as measured a thing it
+# could not measure. A suite that accuses on every run of a whole operating system is a suite
+# people stop reading — the same failure S83 named for etat-chaine.sh.
+#
+# Named one by one, never "any failure while plutil is absent". A blanket rule would swallow a
+# real regression the day one of these breaks for its own reason.
+# THE LIMIT, written because it is real: on a host without plutil these fifteen prove NOTHING.
+# They are not green here, they are absent. macOS remains the only place they are measured.
+PLIST_DEPENDENT=" T06 T07 T10 T30 T31 T32 T33 T34 T58 T76 T92 T136 T153 T154 T155 "
+HAVE_PLUTIL=0
+command -v plutil >/dev/null 2>&1 && HAVE_PLUTIL=1
+SKIPPED=0; SKIP_LIST=""
+skipped() { SKIPPED=$((SKIPPED + 1)); SKIP_LIST="$SKIP_LIST
+    $1"; printf '  skip %s\n' "$1"; }
+
+# needs_plutil ID → 0 when this id is one of the fifteen AND plutil is missing here.
+needs_plutil() {
+  [ "$HAVE_PLUTIL" -eq 1 ] && return 1
+  case "$PLIST_DEPENDENT" in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+bad()  {
+  if needs_plutil "${1%% *}"; then
+    skipped "$1  — needs plutil, absent on this host: not proven either way"
+    return
+  fi
+  FAIL=$((FAIL + 1)); RED_LIST="$RED_LIST
     $1"; printf '  RED  %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
 
 OUT=""; RC=0
@@ -1992,6 +2024,23 @@ _dup_selftest
 # The root guard's own red proof, on the same principle as T159/T160: a guard nobody ever saw
 # fire is a comment. Two calls with the answer known in advance and opposite. Like them, these
 # do not run the tool, so they are green under LEGACY=1 too.
+# The plutil guard's own red proof, same principle again: a guard nobody ever saw fire is a
+# comment, and this one is load-bearing — it is the difference between "15 red" and "15 not
+# measured here". Two calls with the answer known in advance and opposite, forced in both
+# directions so the test means something on macOS AND on Linux.
+_saved_have="$HAVE_PLUTIL"
+HAVE_PLUTIL=0
+if needs_plutil T06; then ok "T223  the plutil guard SKIPS a plist case when plutil is absent"
+else bad "T223  the plutil guard SKIPS a plist case when plutil is absent" "needs_plutil T06 said no"; fi
+if needs_plutil T217; then bad "T224  …and never skips a case that does not read a plist" \
+  "needs_plutil T217 claimed T217 depends on plutil"
+else ok "T224  …and never skips a case that does not read a plist"; fi
+HAVE_PLUTIL=1
+if needs_plutil T06; then bad "T225  …and skips nothing at all where plutil exists" \
+  "needs_plutil T06 skipped a case on a host that CAN read the plist"
+else ok "T225  …and skips nothing at all where plutil exists"; fi
+HAVE_PLUTIL="$_saved_have"
+
 if not_root 0; then bad "T197  the root guard REFUSES uid 0 (its own red proof)" "not_root 0 said the run was safe"
 else ok "T197  the root guard REFUSES uid 0 (its own red proof)"; fi
 if not_root 501; then ok "T198  …and lets an ordinary uid through"
@@ -2007,7 +2056,9 @@ fi
 
 echo
 echo "================================================================"
-printf '  %s passed, %s red\n' "$PASS" "$FAIL"
+printf '  %s passed, %s red%s\n' "$PASS" "$FAIL" \
+  "$([ "$SKIPPED" -gt 0 ] && printf ', %s skipped (plutil absent — macOS only)' "$SKIPPED")"
+if [ "$SKIPPED" -gt 0 ]; then printf '  skipped:%s\n' "$SKIP_LIST"; fi
 if [ "$FAIL" -gt 0 ]; then printf '  red:%s\n' "$RED_LIST"; fi
 echo "================================================================"
 [ "$FAIL" -eq 0 ] || exit 1
