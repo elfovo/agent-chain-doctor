@@ -248,9 +248,24 @@ Four more limits, stated here rather than discovered later:
   your prompt's contract, not what happened inside a session. Five of the failure modes it was
   built from are *practices*, not file states — they come out as the five questions the report
   ends on, not as checks.
-- **Linux coverage is thinner than macOS coverage.** Discovery handles crontab and systemd user
-  timers, and the portable fallbacks (`stat -c`, `date -d`) are there. But four live checks — L1 (last exit status), L10 (sleep history), L12 (the scheduler's `PATH`), L13 (error-path divergence) — have no launchd registry to query and fall back to `UNKNOWN` there. That is 4 of 29 — **at worst**, and the exact figure is lower: cron discovery does read an error path out of the crontab line, so L13 often decides anyway, and L12 decides on any chain that names its agent by absolute path, whatever the scheduler. **Fair warning: the systemd discovery path has been fixed by reading, not
-  measured on a real systemd machine** — I do not have one. On Linux, pass the launcher as an argument and those four are what you lose — plus, on a cron chain, the scheduler side that discovery would have found for you: naming the launcher skips the crontab walk, so L13 loses its second error path and L9 loses the "the scheduler invokes it directly" test. Run it both ways if the answers differ.
+- **Linux coverage is thinner than macOS coverage, and less thin than this section used to
+  claim.** Discovery handles crontab and systemd user timers, and the portable fallbacks
+  (`stat -c`, `date -d`) are there. This paragraph used to warn that four live checks — L1 (last
+  exit status), L10 (sleep history), L12 (the scheduler's `PATH`), L13 (error-path divergence) —
+  "have no launchd registry to query" on Linux. **Two of the four were wrong, and they were wrong
+  in the direction that costs a reader most: the tool printed an absence about something present.**
+  systemd keeps both facts and hands them over for free — `ExecMainStatus`/`Result` for L1, and
+  the unit's `Environment=` falling back to the manager environment for L12 — and the tool simply
+  never asked. It asks now, on both the discovery path and the named-launcher path. Measured on
+  systemd 255 on 2026-09-21 against a real user timer, not reasoned about: on that chain L1 went
+  from "last probe exit code not readable" to a read status, and L12 from "the scheduler's PATH is
+  unknown" to a verdict on the PATH the unit actually runs with. Of the four, **L13 keeps its
+  `UNKNOWN` honestly** (systemd declares `StandardError=`, but as a journal, and the check is
+  about two *file* paths diverging) and **L10 is still unmeasured** — the machine that made this
+  measurement possible is a VM that never sleeps, so there was no sleep history to read and
+  nothing was changed there on a guess. On a cron chain, naming the launcher still skips the
+  crontab walk, so L13 loses its second error path and L9 loses the "the scheduler invokes it
+  directly" test. Run it both ways if the answers differ.
 
 ### Where it *has* been measured — including on four chains the author did not write
 
@@ -685,12 +700,16 @@ three assertion helpers, and **prints its own denominator** — anything it cann
 rather than silently dropped. A control is allowed to be incomplete; it is not allowed to be quiet
 about it.
 
-Three read-only environment hooks (`ACD_LAUNCHCTL_LIST`, `ACD_PMSET_LOG`, `ACD_LAUNCHAGENTS_DIR`)
-let the suite replay a scheduler registry, a sleep history, or an agents directory that does not
-exist on the machine running the tests. Two of them name a file whose contents are used instead of running a command
-(`ACD_LAUNCHCTL_LIST`, `ACD_PMSET_LOG`); the third names a **directory** to walk instead of
-`~/Library/LaunchAgents`. They are documented in the source rather than hidden: a diagnostic tool you
-cannot test is a diagnostic tool you should not trust.
+Four read-only environment hooks (`ACD_LAUNCHCTL_LIST`, `ACD_PMSET_LOG`, `ACD_LAUNCHAGENTS_DIR`,
+`ACD_SYSTEMD_UNIT_DIR`) let the suite replay a scheduler registry, a sleep history, an agents
+directory or a set of systemd units that do not exist on the machine running the tests. Two of
+them name a file whose contents are used instead of running a command (`ACD_LAUNCHCTL_LIST`,
+`ACD_PMSET_LOG`); the other two name a **directory** to walk instead of `~/Library/LaunchAgents`
+and instead of `systemctl --user`. They are documented in the source rather than hidden: a
+diagnostic tool you cannot test is a diagnostic tool you should not trust. The systemd hook was
+added the day the systemd branch was first measured, for the reason that branch had gone three
+weeks unmeasured: a test suite that can only reach the scheduler its own host runs is a test
+suite that certifies one platform and guesses at the other.
 
 ---
 
