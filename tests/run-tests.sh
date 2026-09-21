@@ -1992,6 +1992,124 @@ expect_once "T209 S16  …and no marker variable means one finding, not two" S16
 # weaker than expect_full_catalogue (it asks "never twice", not "all 29, once each") because it
 # has to hold for the partial reports too — but it holds for EVERY run instead of four.
 echo
+echo
+echo "-- systemd: the registry the tool never asked (measured on systemd 255, 2026-09-21)"
+# The README's own fair warning said the systemd path had been "fixed by reading, not measured
+# on a real systemd machine — I do not have one". The machine arrived with the 2026-09-16 move
+# to a Linux runner, and the measurement it allowed is written up in
+# 20_experiences/exp-008-livrables/systemd-reel/mesure-2026-09-21.md. Discovery works. What
+# does NOT is everything after it: `discover_systemd` set SCHED_STATUS="" on purpose, and
+# `find_scheduler_for_launcher` looked for a launchd plist and nothing else — so L1 and L12
+# answered "not readable" and "unknown" on a scheduler that answers both, exactly, for free.
+#
+# These cases drive the whole systemd path through ACD_SYSTEMD_UNIT_DIR, so they run on macOS
+# too: the bytes in the .show fixtures are the ones systemd 255 actually printed, copied, not
+# invented. A seam is the only way a suite can test the branch its own host cannot reach — the
+# same reason ACD_LAUNCHAGENTS_DIR exists.
+make_systemd() {  # $1 = fixture name  $2 = the ExecMainStatus block  $3 = the unit's [Service] extras
+  make_chain "$1"
+  SYSD="$ROOT/systemd"; EMPTY_AGENTS="$ROOT/no-agents"
+  mkdir -p "$SYSD" "$EMPTY_AGENTS"
+  printf 'agent-loop.timer\n' > "$SYSD/timers"
+  printf '[Timer]\nOnCalendar=*:0/30\n' > "$SYSD/agent-loop.timer"
+  printf '[Service]\nType=oneshot\n%sExecStart=%s\n' "$3" "$LAUNCHER" > "$SYSD/agent-loop.service"
+  printf '%s' "$2" > "$SYSD/agent-loop.service.show"
+  printf 'LANG=C.UTF-8\nPATH=%s/bin:/usr/bin:/bin\n' "$ROOT" > "$SYSD/environment"
+}
+sysd_doctor() {
+  ACD_SYSTEMD_UNIT_DIR="$SYSD" ACD_LAUNCHAGENTS_DIR="$EMPTY_AGENTS" \
+    ACD_LAUNCHCTL_LIST="" ACD_PMSET_LOG="$PMSET" run_doctor
+}
+
+# T226 — the exit code is in systemd's registry, and it is the one signal that tells a chain
+# waiting quietly apart from a chain dying at every tick. Status 3, with an exit timestamp, is
+# a chain that died.
+make_systemd sysd_failed 'Result=exit-code
+ExecMainStartTimestamp=Mon 2026-09-21 09:18:53 UTC
+ExecMainExitTimestamp=Mon 2026-09-21 09:18:53 UTC
+ExecMainStatus=3
+Environment=
+' ''
+sysd_doctor
+expect_because "T226 L1  systemd's ExecMainStatus is read, like launchd's Status column" \
+  EXPOSED L1 "exited 3"
+
+# T227 — THE FALSE ROUTE, and it is not hypothetical: measured on systemd 255, a unit that has
+# NEVER RUN reports `ExecMainStatus=0` — byte for byte what a unit that ran and succeeded
+# reports. Reading the status without testing ExecMainExitTimestamp first would print
+# "the probe's last run exited 0", a GUARDED verdict, about a chain that has never started
+# once. The empty timestamp is the only thing that tells them apart.
+make_systemd sysd_neverrun 'Result=success
+ExecMainStartTimestamp=
+ExecMainExitTimestamp=
+ExecMainStatus=0
+Environment=
+' ''
+sysd_doctor
+expect "T227 L1  …and a unit that has NEVER RUN is not reported as 'exited 0'" \
+  UNKNOWN L1
+
+# T228 — L12 on systemd. `systemctl --user show-environment` hands back the PATH a unit that
+# declares none actually runs with; verified on piece rather than read, by a unit whose
+# ExecStart prints its own $PATH — identical to the byte.
+make_systemd sysd_path 'Result=success
+ExecMainStartTimestamp=Mon 2026-09-21 09:17:38 UTC
+ExecMainExitTimestamp=Mon 2026-09-21 09:17:38 UTC
+ExecMainStatus=0
+Environment=
+' ''
+sysd_doctor
+expect "T228 L12  the manager environment's PATH is the one a unit without Environment= runs with" \
+  GUARDED L12
+
+# T229 — the OTHER false route, measured in the other direction: a unit that declares
+# `Environment=PATH=…` WINS over the manager environment (the probe received /only/this:/usr/bin
+# when the unit set it). A fix that read only the manager would certify a binary as resolvable
+# under a PATH the chain never runs with — a GUARDED that is worse than the UNKNOWN it replaced.
+make_systemd sysd_override 'Result=success
+ExecMainStartTimestamp=Mon 2026-09-21 09:17:38 UTC
+ExecMainExitTimestamp=Mon 2026-09-21 09:17:38 UTC
+ExecMainStatus=0
+Environment=PATH=/only/this:/usr/bin
+' 'Environment=PATH=/only/this:/usr/bin
+'
+sysd_doctor
+expect "T229 L12  …and the unit's own Environment=PATH wins over the manager's" \
+  EXPOSED L12
+
+# T230 — the path the README TELLS Linux users to take: "On Linux, pass the launcher as an
+# argument". Measured: find_scheduler_for_launcher only ever looked for a launchd plist, so
+# naming the launcher on a systemd box lost the scheduler entirely — and the hint printed in
+# its place advised "--plist", a file that cannot exist on that machine.
+make_systemd sysd_named 'Result=exit-code
+ExecMainStartTimestamp=Mon 2026-09-21 09:18:53 UTC
+ExecMainExitTimestamp=Mon 2026-09-21 09:18:53 UTC
+ExecMainStatus=3
+Environment=
+' ''
+ACD_SYSTEMD_UNIT_DIR="$SYSD" ACD_LAUNCHAGENTS_DIR="$EMPTY_AGENTS" \
+  ACD_LAUNCHCTL_LIST="" ACD_PMSET_LOG="$PMSET" run_doctor "$LAUNCHER"
+expect_because "T230 L1  naming the launcher on systemd still finds its scheduler entry" \
+  EXPOSED L1 "exited 3"
+
+# T231 — and the seam must really REPLACE systemd, not sit beside it: with an empty timer list,
+# no .timer may appear anywhere in the output. Without this the five cases above would prove
+# nothing about the seam — on the machine this was written on, the very same case reached past
+# an empty fixture and found the host's own live agent-loop.timer, which is what made it red.
+# The assertion is deliberately on the ABSENCE of any timer name rather than on a chain-not-
+# found message: a host with a real launchd or cron chain of its own would still find THAT,
+# legitimately, and the message would differ while the mechanism under test was fine.
+make_systemd sysd_none 'ExecMainStatus=0
+' ''
+: > "$SYSD/timers"
+sysd_doctor
+if printf '%s\n' "$OUT" | grep -q '\.timer'; then
+  bad "T231     an empty timer list lets no .timer through the seam" \
+    "$(printf '%s\n' "$OUT" | grep '\.timer' | head -n 1)"
+else
+  ok "T231     an empty timer list lets no .timer through the seam"
+fi
+
 echo "-- the duplicate sweep itself, seen both ways"
 # T152 has no fixture: it reads the output of every other run. S56 measured that EIGHT of the
 # 77 fine-mutation cells — 10 % of the matrix — die by T152 ALONE, no other test noticing

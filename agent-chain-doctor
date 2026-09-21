@@ -53,6 +53,13 @@ ACD_PMSET_LOG="${ACD_PMSET_LOG:-}"
 # without it, argument-free discovery — the path most users will take — could only ever be
 # tested against the machine running the suite.
 ACD_LAUNCHAGENTS_DIR="${ACD_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
+# The systemd side of the same seam. Names a DIRECTORY standing in for `systemctl --user`:
+# `timers` holds one timer unit name per line, `<unit>` holds what `systemctl --user cat`
+# would print, `<unit>.show` what `systemctl --user show` would, and `environment` what
+# `systemctl --user show-environment` would. Without it the systemd branch could only ever be
+# tested on a machine that has systemd — which is the state that let it ship for three weeks
+# with its registry never once read.
+ACD_SYSTEMD_UNIT_DIR="${ACD_SYSTEMD_UNIT_DIR:-}"
 
 usage() {
   cat <<'USAGE'
@@ -273,7 +280,9 @@ SCHED_ERRPATH=""
 SCHED_OUTPATH=""
 SCHED_PROGARGS=""     # one argument per line
 SCHED_STATUS=""       # last exit code of the probe, per the scheduler registry
+SCHED_PATH_SRC=""     # how to name the PATH in SCHED_ENV, when a scheduler declares one
 SCHED_SCRIPT=""       # the launcher the scheduler entry actually runs
+SCHED_SVC=""          # on systemd, the .service the timer activates
 SCHED_PID=""
 MARKER_SCORE=""
 DISCOVERY_NOTES=""
@@ -353,6 +362,7 @@ json_arr() {  # $1 json  $2 key → one element per line
 clear_sched() {
   SCHED_SCRIPT=""; SCHED_LABEL=""; SCHED_ERRPATH=""; SCHED_OUTPATH=""
   SCHED_PROGARGS=""; SCHED_ENV=""; SCHED_DETAIL=""; SCHED_STATUS=""; SCHED_PID=""
+  SCHED_PATH_SRC=""
 }
 
 read_plist() {  # $1 = plist path → 0 and SCHED_* set, or 1
@@ -474,6 +484,84 @@ EOF
   return 0
 }
 
+# --- systemd, behind the seam ------------------------------------------------------------
+systemctl_timers() {
+  if [ -n "$ACD_SYSTEMD_UNIT_DIR" ]; then
+    cat "$ACD_SYSTEMD_UNIT_DIR/timers" 2>/dev/null
+    return 0
+  fi
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemctl --user list-timers --all --no-legend 2>/dev/null \
+    | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /\.timer$/) print $i }'
+}
+
+systemctl_cat() {  # $1 = unit
+  if [ -n "$ACD_SYSTEMD_UNIT_DIR" ]; then
+    cat "$ACD_SYSTEMD_UNIT_DIR/$1" 2>/dev/null
+    return 0
+  fi
+  command -v systemctl >/dev/null 2>&1 && systemctl --user cat "$1" 2>/dev/null
+}
+
+systemctl_show() {  # $1 = unit
+  if [ -n "$ACD_SYSTEMD_UNIT_DIR" ]; then
+    cat "$ACD_SYSTEMD_UNIT_DIR/$1.show" 2>/dev/null
+    return 0
+  fi
+  command -v systemctl >/dev/null 2>&1 && systemctl --user show "$1" 2>/dev/null
+}
+
+systemctl_show_env() {
+  if [ -n "$ACD_SYSTEMD_UNIT_DIR" ]; then
+    cat "$ACD_SYSTEMD_UNIT_DIR/environment" 2>/dev/null
+    return 0
+  fi
+  command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment 2>/dev/null
+}
+
+# systemd keeps the same two facts launchd keeps, and this tool used to read neither: the last
+# exit code of the unit, and the environment it runs under. `discover_systemd` set
+# SCHED_STATUS="" outright, so L1 answered "last probe exit code not readable" on a scheduler
+# that answers it exactly — an absence ASSERTED about something present, which is worse than a
+# neutral unknown because the report reads as a measurement.
+#
+# The trap, measured on systemd 255 rather than reasoned about: a unit that has NEVER RUN
+# reports `ExecMainStatus=0`, byte for byte what a unit that ran and succeeded reports. Taking
+# it at face value would print "the probe's last run exited 0" — GUARDED — about a chain that
+# has never started once. `ExecMainExitTimestamp` is empty until a first run ENDS, and that is
+# the only thing separating the two. So the status is read only when the timestamp is there.
+read_systemd_registry() {  # $1 = the .service unit
+  local show env p st ts
+  show=$(systemctl_show "$1")
+  [ -n "$show" ] || return 1
+  ts=$(printf '%s\n' "$show" | sed -n 's/^ExecMainExitTimestamp=//p' | head -n 1)
+  if [ -n "$ts" ]; then
+    st=$(printf '%s\n' "$show" | sed -n 's/^ExecMainStatus=//p' | head -n 1)
+    case "$st" in ''|*[!0-9]*) st="" ;; esac
+    SCHED_STATUS="$st"
+  fi
+  # Precedence, measured in both directions on the same machine: a unit that declares
+  # `Environment=PATH=…` receives THAT and not the manager's, and a unit that declares none
+  # receives the manager's to the byte (checked by an ExecStart printing its own $PATH, not by
+  # reading the manual). Reading only the manager would certify a binary as resolvable under a
+  # PATH the chain never runs with — a GUARDED worse than the UNKNOWN it replaced.
+  #
+  # Known limit, stated rather than hidden: `Environment=` is one space-separated NAME=VALUE
+  # list, so a PATH element containing a space is split here. systemd quotes such values and
+  # this does not unquote them; the effect is a missed PATH, never an invented one.
+  p=$(printf '%s\n' "$show" | sed -n 's/^Environment=//p' | head -n 1 \
+      | tr ' ' '\n' | sed -n 's/^PATH=//p' | head -n 1)
+  if [ -n "$p" ]; then
+    SCHED_PATH_SRC="the PATH the unit declares in Environment="
+  else
+    env=$(systemctl_show_env)
+    p=$(printf '%s\n' "$env" | sed -n 's/^PATH=//p' | head -n 1)
+    [ -n "$p" ] && SCHED_PATH_SRC="systemd's manager environment — the unit declares no PATH of its own"
+  fi
+  [ -n "$p" ] && SCHED_ENV="PATH=$p"
+  return 0
+}
+
 discover_systemd() {
   local unit script best="" best_n=-1 cand execline svc
   command -v systemctl >/dev/null 2>&1 || return 1
@@ -485,9 +573,9 @@ discover_systemd() {
     # cold reader confronting the README's "handles systemd user timers" with the code.
     # Resolve the activated unit first: an explicit `Unit=` if the timer names one, otherwise
     # the same stem with .service, which is what systemd itself defaults to.
-    svc=$(systemctl --user cat "$unit" 2>/dev/null | sed -n 's/^Unit=//p' | head -n 1)
+    svc=$(systemctl_cat "$unit" | sed -n 's/^Unit=//p' | head -n 1)
     [ -n "$svc" ] || svc="${unit%.timer}.service"
-    execline=$(systemctl --user cat "$svc" 2>/dev/null | sed -n 's/^ExecStart=//p' | head -n 1)
+    execline=$(systemctl_cat "$svc" | sed -n 's/^ExecStart=//p' | head -n 1)
     [ -n "$execline" ] || continue
     for script in $execline; do
       case "$script" in /*) ;; *) continue ;; esac
@@ -497,17 +585,45 @@ discover_systemd() {
       [ "$(marker_count "$cand")" -ge 2 ] || continue
       if [ "$(marker_count "$cand")" -gt "$best_n" ]; then
         best_n=$(marker_count "$cand"); best="$script"; MARKER_SCORE="$cand"
-        SCHED_LABEL="$unit"; SCHED_DETAIL="$unit → $svc"
+        SCHED_LABEL="$unit"; SCHED_DETAIL="$unit → $svc"; SCHED_SVC="$svc"
       fi
     done
   done <<EOF
-$(systemctl --user list-timers --all --no-legend 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /\.timer$/) print $i }')
+$(systemctl_timers)
 EOF
   [ -n "$best" ] || { clear_sched; return 1; }
   LAUNCHER="$best"
   SCHEDULER="systemd"
   SCHED_STATUS=""
+  read_systemd_registry "$SCHED_SVC" || true
   return 0
+}
+
+# The path the README tells Linux users to take — "On Linux, pass the launcher as an argument"
+# — used to lose the scheduler entirely: find_scheduler_for_launcher looked for a launchd plist
+# and nothing else, so on a systemd box it returned empty-handed and the report advised
+# "--plist", a file that cannot exist on that machine. The timer walk is the same one discovery
+# does; only the acceptance test differs — this one wants the unit whose ExecStart IS the
+# launcher already named, not the best-scoring candidate.
+find_systemd_for_launcher() {  # $1 = the launcher already chosen
+  local unit svc execline script
+  while IFS= read -r unit; do
+    [ -n "$unit" ] || continue
+    svc=$(systemctl_cat "$unit" | sed -n 's/^Unit=//p' | head -n 1)
+    [ -n "$svc" ] || svc="${unit%.timer}.service"
+    execline=$(systemctl_cat "$svc" | sed -n 's/^ExecStart=//p' | head -n 1)
+    [ -n "$execline" ] || continue
+    for script in $execline; do
+      [ "$script" = "$1" ] || continue
+      SCHEDULER="systemd"
+      SCHED_LABEL="$unit"; SCHED_DETAIL="$unit → $svc"; SCHED_SVC="$svc"
+      read_systemd_registry "$svc" || true
+      return 0
+    done
+  done <<EOF
+$(systemctl_timers)
+EOF
+  return 1
 }
 
 # If the user names the launcher, we still want its scheduler entry — that is where the last
@@ -519,15 +635,18 @@ find_scheduler_for_launcher() {
     SCHEDULER="launchd"; read_sched_status || true
     return 0
   fi
-  command -v plutil >/dev/null 2>&1 || return 1
-  for p in "$ACD_LAUNCHAGENTS_DIR"/*.plist; do
-    [ -f "$p" ] || continue
-    read_plist "$p" || continue
-    if [ "$SCHED_SCRIPT" = "$LAUNCHER" ]; then
-      SCHEDULER="launchd"; read_sched_status || true
-      return 0
-    fi
-  done
+  if command -v plutil >/dev/null 2>&1; then
+    for p in "$ACD_LAUNCHAGENTS_DIR"/*.plist; do
+      [ -f "$p" ] || continue
+      read_plist "$p" || continue
+      if [ "$SCHED_SCRIPT" = "$LAUNCHER" ]; then
+        SCHEDULER="launchd"; read_sched_status || true
+        return 0
+      fi
+    done
+  fi
+  clear_sched
+  find_systemd_for_launcher "$LAUNCHER" && return 0
   clear_sched
   return 1
 }
@@ -1751,7 +1870,7 @@ resolve_under_sched_path() {
   RESOLVE_HIT=""; RESOLVE_SRC=""; RESOLVE_LISTS=""
   p=$(sched_env PATH) || p=""
   if [ -n "$p" ]; then
-    RESOLVE_SRC="the PATH declared in the scheduler entry"
+    RESOLVE_SRC="${SCHED_PATH_SRC:-the PATH declared in the scheduler entry}"
   elif [ "$SCHEDULER" = "launchd" ]; then
     p="/usr/bin:/bin:/usr/sbin:/sbin"
     RESOLVE_SRC="launchd's default PATH — the entry declares none"
