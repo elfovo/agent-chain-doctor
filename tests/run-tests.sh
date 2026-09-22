@@ -111,6 +111,16 @@ note_duplicates() {  # $1 what was run, for the trail
   [ -z "$dups" ] || DUP_TRAIL="$DUP_TRAIL
       $1 → $dups"
 }
+# Every run in this suite is given an EMPTY crontab, and that is not a precaution — it is a
+# measured fix. On 2026-09-22 a real crontab was written on the host to measure the cron branch
+# (which no case reached), and three systemd cases, T226/T228/T229, went red at once: discovery
+# found the host's own live chain before the fixture's. That is exactly the trap T231 watches
+# for on the systemd side, open on the cron side for as long as there was no seam to close it.
+# Defaulting it here, rather than in each case, means a case added later cannot forget it.
+: "${ACD_CRONTAB:=$WORK/no-crontab}"
+export ACD_CRONTAB
+: > "$ACD_CRONTAB"
+
 run_doctor() { OUT=$(bash "$DOCTOR" --verbose "$@" 2>&1); RC=$?; note_duplicates "$*"; }
 
 has_verdict() {  # $1 verdict  $2 id

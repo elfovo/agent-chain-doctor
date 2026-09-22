@@ -60,6 +60,13 @@ ACD_LAUNCHAGENTS_DIR="${ACD_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
 # tested on a machine that has systemd — which is the state that let it ship for three weeks
 # with its registry never once read.
 ACD_SYSTEMD_UNIT_DIR="${ACD_SYSTEMD_UNIT_DIR:-}"
+# The cron side, and the last branch to get one. Names a FILE whose contents are used instead
+# of running `crontab -l`. It was missing for as long as the systemd hook was, and for the same
+# reason nobody noticed: the only way to exercise `discover_cron` was to write into the REAL
+# crontab of whatever machine runs the suite — which is both a write this tool must never need
+# and the exact trap T231 documents, a case reaching past an empty fixture into the host's own
+# live chain and going green on it.
+ACD_CRONTAB="${ACD_CRONTAB:-}"
 
 usage() {
   cat <<'USAGE'
@@ -453,9 +460,35 @@ discover_launchd() {
   return 0
 }
 
+# cron_errpath LINE → the file the schedule line sends the probe's STDERR to, or nothing.
+#
+# Four forms, in the order they bind, because they do not all mean the same thing:
+#   `2>> f` / `2> f`   stderr named outright — that file, whatever else the line does
+#   `>> f 2>&1`        stderr folded into stdout, so stderr lands wherever stdout goes
+#   `>> f` alone       no stderr redirection: cron mails it, and that is NOT a file on disk
+# Each is matched on its own anchored pattern rather than by one expression trying to cover
+# them all; the version that tried came back empty on the two commonest ones.
+cron_errpath() {
+  local l="$1" p
+  p=$(printf '%s' "$l" | sed -nE 's/.*[[:space:]]2>>?[[:space:]]*([^[:space:]&>]+).*/\1/p' | head -n 1)
+  if [ -n "$p" ]; then printf '%s' "$p"; return 0; fi
+  case "$l" in
+    *2'>&'1*)
+      p=$(printf '%s' "$l" | sed -nE 's/.*[^0-9[:space:]]?[[:space:]]>>?[[:space:]]*([^[:space:]&>]+).*/\1/p' | head -n 1)
+      [ -n "$p" ] && printf '%s' "$p" ;;
+  esac
+  return 0
+}
+
+# The one place `crontab -l` is read, so the seam has one place to sit.
+crontab_lines() {
+  if [ -n "$ACD_CRONTAB" ]; then cat "$ACD_CRONTAB" 2>/dev/null; return 0; fi
+  crontab -l 2>/dev/null
+}
+
 discover_cron() {
   local line tok script best="" best_n=-1 cand
-  command -v crontab >/dev/null 2>&1 || return 1
+  [ -n "$ACD_CRONTAB" ] || command -v crontab >/dev/null 2>&1 || return 1
   # `crontab -l` exits 1 with a message on stderr when there is no crontab. That is the
   # NORMAL case and it must never become a finding.
   while IFS= read -r line; do
@@ -472,11 +505,16 @@ discover_cron() {
         best_n=$(marker_count "$cand"); best="$script"; MARKER_SCORE="$cand"
         SCHED_DETAIL=$(trim_line "$line")
         # The redirection target on the schedule line is where the probe's own errors land.
-        SCHED_ERRPATH=$(printf '%s' "$line" | sed -n 's/.*2*>>*[[:space:]]*\([^[:space:]&]*\).*/\1/p' | head -n 1)
+        # Read by cron_errpath(), not by one greedy sed: `>> f 2>&1` is the commonest crontab
+        # line there is, and a leading `.*` walks straight past the `>>` to land on the `2>` of
+        # `2>&1`, where the capture hits `&` and comes back EMPTY — indistinguishable from "no
+        # redirection at all". L3 then says "no probe error file is declared anywhere" about a
+        # path written three words along the very line the tool just printed under `scheduler`.
+        SCHED_ERRPATH=$(cron_errpath "$line")
       fi
     done
   done <<EOF
-$(crontab -l 2>/dev/null)
+$(crontab_lines)
 EOF
   [ -n "$best" ] || { clear_sched; return 1; }
   LAUNCHER="$best"
