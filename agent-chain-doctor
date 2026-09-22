@@ -2137,9 +2137,27 @@ check_S4_lock_failure() {
 # computation turns an unreadable mtime into an age of fifty-six years, which is past any
 # staleness cutoff — so the lock of a LIVE session gets torn down and a second agent starts.
 # The fix is not a better default: it is that an unreadable value means unknown, not old.
+#
+# The spellings of "how old is this file", in one place because both halves of this check need
+# the same list and had it in only one (I-039): the BSD/GNU short options, GNU's two long ones,
+# and the `date -r FILE +%s` idiom. `.?` stands in for an optional quote around the format,
+# the same compromise FMT_DATE_RE makes lower down — a launcher writing `stat -c "%Y"` was
+# being told it "computes no file age", which is an absence asserted about a line in the file.
+#
+# The `date` spelling is tied to `+%s` and not to `date -r` alone, and that is load-bearing in
+# both directions. `date -r EPOCH '+%a %H:%M'` FORMATS a wakeup for a human — the kit's own
+# launchers do it, and S14 is the check that judges it. Read as an age it would put a second,
+# wrong accusation under S5 on a chain whose mtime read is guarded correctly (T237, T238).
+AGE_READ_RE='(stat[[:space:]]+(-[fc][[:space:]]*|--(format|printf)=).?%[mY]|date[[:space:]]+-r[[:space:]][^;|&]*\+.?%s)'
+
 check_S5_age_fallback() {
   local bad good
-  bad=$(code_first '\$\([[:space:]]*stat[^)]*\|\|[[:space:]]*echo[[:space:]]+0') || bad=""
+  # The fallback half has to know the same spellings as the reading half, or widening only the
+  # reading half turns a real EXPOSED into a GUARDED: `date -r "$F" +%s || echo 0` passes a
+  # numeric-shape guard — `0` IS numeric — so the guard would be cited as validating the one
+  # value whose fallback makes it meaningless (T236). Here the `date` branch must see `+%s`
+  # BEFORE the `||`, because an `|| echo 0` nested inside a date FORMAT belongs to S14 (T238).
+  bad=$(code_first '\$\([[:space:]]*(stat[^)]*|date[[:space:]]+-r[^)]*\+.?%s[^)]*)\|\|[[:space:]]*echo[[:space:]]+0') || bad=""
   if [ -n "$bad" ]; then
     finding EXPOSED S5 static "an unreadable timestamp falls back to 0, i.e. 'infinitely old'" \
       "$(ev "$bad")" \
@@ -2147,9 +2165,10 @@ check_S5_age_fallback() {
       "the lock of a session that is still running is then deleted, and a second agent starts"
     return
   fi
-  local st; st=$(code_first 'stat[[:space:]]+-[fc][[:space:]]*%[mY]') || st=""
+  local st; st=$(code_first "$AGE_READ_RE") || st=""
   if [ -z "$st" ]; then
-    finding UNKNOWN S5 static "this launcher computes no file age" "nothing to check the fallback of"
+    finding UNKNOWN S5 static "this launcher computes no file age" \
+      "looked for stat -f/-c, stat --format=/--printf=, and date -r FILE +%s, and found none"
     return
   fi
   local v g

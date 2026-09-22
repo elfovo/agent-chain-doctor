@@ -1988,6 +1988,60 @@ expect_because "T196 S16 no spacing-marker variable → UNKNOWN, not a marker wr
   UNKNOWN S16 "no spacing-marker variable found"
 expect_once "T209 S16  …and no marker variable means one finding, not two" S16
 
+# --- S5: the spellings of a file age this check could not read (I-039) -------------------
+# S5 looked for `stat -[fc] %[mY]` and nothing else. Four other spellings compute a file age,
+# three of them the GNU ones a Linux chain is most likely to carry — and when it met them the
+# answer it printed was "this launcher computes no file age": an absence asserted about a line
+# sitting right there in the file. Same register as the two systemd UNKNOWNs below, and the
+# reason it costs more than silence is that the report reads like a measurement.
+# Each case rewrites only the `stat -f %m` of the negative fixture, leaving its guard
+# (`case "$GATE_MTIME" in ''|*[!0-9]*)`) untouched — so the right answer is GUARDED every time,
+# and a case that comes back UNKNOWN is the check failing to see the line, not to judge it.
+_SQ="'"
+make_chain s5c1; mutate 's|stat -f %m|stat -c "%Y"|'; doctor
+expect_because "T232 S5  a quoted GNU format string is still a file age" \
+  GUARDED S5 "the timestamp is validated"
+make_chain s5c2; mutate "s|stat -f %m|stat -c ${_SQ}%Y${_SQ}|"; doctor
+expect_because "T233 S5  …single-quoted too" GUARDED S5 "the timestamp is validated"
+make_chain s5c3; mutate 's|stat -f %m|stat --format=%Y|'; doctor
+expect_because "T234 S5  …and the long option --format=" GUARDED S5 "the timestamp is validated"
+make_chain s5c4; mutate 's|stat -f %m "\$GATE" 2>/dev/null|date -r "$GATE" +%s|'; doctor
+expect_because "T235 S5  …and the mtime read through date -r FILE +%s" \
+  GUARDED S5 "the timestamp is validated"
+
+# The false trail that makes this more than a widened regex: seeing a new spelling is only
+# useful if the EXPOSED half sees it too. `date -r "$GATE" +%s || echo 0` is the exact defect
+# S5 exists for — and `echo 0` passes the fixture's own numeric guard, so a check that widened
+# only its "an age is computed" pattern would answer GUARDED here, certifying as validated the
+# one value whose fallback makes the validation meaningless.
+make_chain s5c5
+mutate 's|stat -f %m "\$GATE" 2>/dev/null|date -r "$GATE" +%s 2>/dev/null \|\| echo 0|'
+doctor
+expect_because "T236 S5  a date -r fallback to zero is the same defect, not a validated read" \
+  EXPOSED S5 "falls back to 0"
+
+# …and the other direction, which is why the `date` spelling is tied to `+%s` rather than to
+# `date -r`: the fixture formats a wakeup with `date -r "$SHOWN_EPOCH" '+%a %H:%M'`, which is a
+# HUMAN string, not a file age. With its stat line deleted this launcher genuinely computes no
+# age, and a check that read `date -r` alone would answer "a file age is computed and this
+# check cannot see it validated" about a line that computes no age at all.
+make_chain s5c6; mutate '/stat -f %m/d'; doctor
+expect_because "T237 S5  formatting an epoch with date -r is not computing a file age" \
+  UNKNOWN S5 "this launcher computes no file age"
+
+# The same trap on the EXPOSED side, where it is worse. S14's fixture writes
+# `$(date -r "$(cat "$DUE_FILE" … || echo 0)" "+%a %H:%M" …)`: an `|| echo 0` really is in
+# there, inside a nested substitution, and the defect it carries belongs to S14. An S5 pattern
+# that accepted any `date` would read straight through it and file a second, wrong accusation
+# under S5 — on a chain whose own mtime read is guarded correctly.
+make_chain s5c7
+mutate '/^SHOWN_EPOCH=/d' '/^case "\$SHOWN_EPOCH"/d' \
+       's|^SHOWN_TIME=.*|SHOWN_TIME=$(date -r "$(cat "$DUE_FILE" 2>/dev/null \|\| echo 0)" "+%a %H:%M" 2>/dev/null \|\| echo "?")|'
+doctor
+expect_because "T238 S5  a nested '|| echo 0' under a date FORMAT is S14's defect, not S5's" \
+  GUARDED S5 "the timestamp is validated"
+expect_once "T239 S5  …and one file age means one S5 finding, not two" S5
+
 # The global invariant, read once at the end over every run the suite made. It is deliberately
 # weaker than expect_full_catalogue (it asks "never twice", not "all 29, once each") because it
 # has to hold for the partial reports too — but it holds for EVERY run instead of four.
