@@ -2318,6 +2318,21 @@ cron_doctor
 expect_evidence "T245 L12 a name ending in DIR is a directory, not the agent binary" \
   UNKNOWN L12 "'fakeagent' resolves in YOUR shell"
 
+# T247 — the regression the corpus caught, copied from the chain that caught it. Widening
+# classify_paths to agent_invocation's full list made a bare *AGENT* enough, and
+# DiegoGarcimartin/toolbox — a stranger's repository, in the I-033 corpus — declares
+#   AGENTS_MANIFEST="$HOME/.claude/limit-interrupted-agents.jsonl"
+# on two of its scripts. L12 then announced EXPOSED "the agent binary path is not executable …
+# the launcher will exit 127 at every session, forever", about a JSONL ledger, on two chains
+# that have no such defect. An assignment carries no proof that what it holds is ever run;
+# only agent_invocation, reading a name in COMMAND POSITION, has that proof. The byte-for-byte
+# declaration is kept here so the reason cannot be paraphrased away.
+make_cron cron_manifest
+sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|AGENTS_MANIFEST=\"$ROOT/state/limit-interrupted-agents.jsonl\"\n: \"\${BOT_CLI:=fakeagent}\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+cron_doctor
+expect_evidence "T247 L12 a manifest parked in AGENTS_* is not the agent binary" \
+  UNKNOWN L12 "'fakeagent' resolves in YOUR shell"
+
 # T246 — THE CLASS SWEEP, and the only case here that is about method rather than about cron.
 # C3 exists because S86 repaired find_scheduler_for_launcher for the route it was standing on
 # and not for the route beside it. A case pinned to cron would close C3 and leave the NEXT

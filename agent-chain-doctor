@@ -978,12 +978,34 @@ STATE_DIR=""
 # The exclusions are not decoration and they are the reason this is not simply "accept *BIN*":
 # `BIN_DIR="/usr/local/bin"` read as the agent binary makes L12 print "the agent binary path is
 # not executable" about a directory — an accusation invented out of a chain that is fine (T245).
-is_agent_bin_name() {  # $1 = a variable name → 0 if it names the agent's binary
-  local n; n=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
-  case "$n" in
-    ''|*DIR|*HOME|*PID|*ARG|*ARGS|*OPTS|*FLAGS|*TIMEOUT|*REPO|*FILE|*LOG|*PATH|*STATE*|*PROMPT*|*BRIEF*) return 1 ;;
+# The EXCLUSIONS are shared. The ACCEPTANCE is not, and the difference is evidence, not taste.
+# agent_invocation reads a name standing in COMMAND POSITION on a running line — `"$AGENT" -p …`
+# — and the position is itself proof that the thing is executed, so a bare *AGENT* is safe there.
+# classify_paths reads an ASSIGNMENT and has no such proof. Measured, on the very corpus this
+# fix was checked against: DiegoGarcimartin/toolbox declares
+#   AGENTS_MANIFEST="$HOME/.claude/limit-interrupted-agents.jsonl"
+# and accepting bare *AGENT* on an assignment made L12 announce EXPOSED "the agent binary path
+# is not executable … the launcher will exit 127 at every session, forever" — about a JSONL
+# data file, on two scripts of a stranger's repository that have no such defect. Widening one
+# half of a pair to match the other is only right when both halves stand on the same evidence.
+is_not_binary_name() {  # $1 = an UPPER-CASED variable name → 0 if it plainly means something else
+  case "$1" in
+    ''|*DIR|*HOME|*PID|*ARG|*ARGS|*OPTS|*FLAGS|*TIMEOUT|*REPO|*FILE|*LOG|*PATH|*STATE*|*PROMPT*|*BRIEF*) return 0 ;;
   esac
+  return 1
+}
+is_agent_bin_name() {  # $1 = a name seen in command position → 0 if it names the agent's binary
+  local n; n=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
+  is_not_binary_name "$n" && return 1
   case "$n" in *CLI*|*CMD*|*BIN*|*AGENT*) return 0 ;; esac
+  return 1
+}
+is_agent_bin_assignment() {  # $1 = an assignment's name → 0 if it names the agent's binary
+  local n; n=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
+  is_not_binary_name "$n" && return 1
+  # Names that say BINARY. Not a bare *AGENT*: see above — an assignment carries no proof that
+  # what it holds is ever executed, and plenty of chains park manifests and ledgers in AGENT_*.
+  case "$n" in *CLI*|*CMD*|*BIN*) return 0 ;; esac
   return 1
 }
 
@@ -1024,7 +1046,7 @@ classify_paths() {
       esac
     done
     # The agent binary is not a path; it is caught by name before the path filter.
-    if [ -z "$AGENT_BIN" ] && is_agent_bin_name "$name"; then
+    if [ -z "$AGENT_BIN" ] && is_agent_bin_assignment "$name"; then
       # The name says binary; the VALUE still has to look like one, and this guard exists
       # because this function reads ASSIGNMENTS where agent_invocation reads running code.
       # `AGENT_LOOP_INTERVAL=900` passes every name test there is and holds a number — taken
