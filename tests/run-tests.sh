@@ -584,12 +584,34 @@ if printf '%s\n' '  x=1  # rw-ok: nothing is written here' | grep 'rw-ok:' | gre
 else bad "T38b the orphan-annotation predicate answers on both sides, so T38 is not vacuous"; fi
 
 # And an observed run: nothing under the sandbox changed while the tool inspected it.
+#
+# `stat -f` means two different things and BOTH exit 0, which is why this snapshot used to be
+# taken as `stat -f '%N %m %z' … || stat -c '%n %Y %s' …`: on BSD `-f` is a format string, on
+# GNU it reports the FILE SYSTEM. On this Linux runner the first arm therefore SUCCEEDED, the
+# `||` fallback was never reached, and what the two snapshots compared was the free-block count
+# of the whole filesystem — not one mtime of one file of the chain. T39 was green because the
+# disk happened to hold still, and it went red on 2026-09-23 when unrelated fixtures added a
+# few blocks between the two calls. It had been asserting nothing about read-onlyness since the
+# 2026-09-16 move to Linux. Pick the implementation by ASKING it, not by hoping the wrong one
+# fails: a probe that answers the wrong question successfully is worse than one that errors.
+snapshot_chain() {  # $1 = root → one line per file: name mtime size
+  if stat -c '%n' "$1" >/dev/null 2>&1; then
+    find "$1" -type f -exec stat -c '%n %Y %s' {} + 2>/dev/null
+  else
+    find "$1" -type f -exec stat -f '%N %m %z' {} + 2>/dev/null
+  fi
+}
 make_chain readonly
-before=$(find "$ROOT" -type f -exec stat -f '%N %m %z' {} + 2>/dev/null \
-         || find "$ROOT" -type f -exec stat -c '%n %Y %s' {} + 2>/dev/null)
+before=$(snapshot_chain "$ROOT")
 doctor
-after=$(find "$ROOT" -type f -exec stat -f '%N %m %z' {} + 2>/dev/null \
-        || find "$ROOT" -type f -exec stat -c '%n %Y %s' {} + 2>/dev/null)
+after=$(snapshot_chain "$ROOT")
+# …and the snapshot must actually see the files, or "nothing changed" is true of nothing.
+if [ "$(printf '%s\n' "$before" | grep -c "$ROOT")" -ge 4 ]; then
+  ok "T39b the read-only snapshot sees the chain's files, so T39 is not vacuous"
+else
+  bad "T39b the read-only snapshot sees the chain's files, so T39 is not vacuous" \
+    "the snapshot names $(printf '%s\n' "$before" | grep -c "$ROOT") file(s) under $ROOT"
+fi
 if [ "$before" = "$after" ]; then ok "T39  an observed run modified nothing in the chain"
 else bad "T39  an observed run modified nothing in the chain" "$(diff <(printf '%s' "$before") <(printf '%s' "$after") | head -n 3 | tr '\n' ' ')"; fi
 
@@ -2184,12 +2206,22 @@ echo "-- cron: the branch the README announces, reached by naming the launcher (
 # grew a systemd arm that day and no cron arm, because the session that repaired its own route
 # did not sweep the class. The sweep is T246 below, and it is written so that a THIRD discovery
 # route added later cannot be forgotten the same way.
-make_cron() {  # $1 = fixture name  $2 = the crontab line's redirection tail
+#
+# The redirection target is named by its FILE NAME, not by a path the caller builds, and that
+# is a scar. Written as a caller-built tail — `make_cron NAME ">> $STATE/cron.err 2>&1"` —
+# the argument expanded $STATE at CALL time — before make_chain had pointed it at this
+# fixture — so the crontab named the PREVIOUS fixture's state directory. The case still went
+# green: it asserted that the two sides declare DIFFERENT error files, and a stale path is
+# certainly different from the right one. A fixture built from a variable its own builder is
+# about to overwrite can satisfy an inequality with pure garbage. The builder owns the path now, so no caller can reintroduce it.
+CRON_ERR=""
+make_cron() {  # $1 = fixture name  $2 = the error file cron redirects into (default cron.err)
   make_chain "$1"
   CRONTAB="$ROOT/crontab.txt"; EMPTY_AGENTS="$ROOT/no-agents"; SYSD="$ROOT/systemd"
   mkdir -p "$EMPTY_AGENTS" "$SYSD"
   : > "$SYSD/timers"
-  printf '*/15 * * * * /bin/bash %s %s\n' "$LAUNCHER" "$2" > "$CRONTAB"
+  CRON_ERR="$STATE/${2:-cron.err}"
+  printf '*/15 * * * * /bin/bash %s >> %s 2>&1\n' "$LAUNCHER" "$CRON_ERR" > "$CRONTAB"
 }
 cron_doctor() {  # extra args are passed to the tool
   ACD_CRONTAB="$CRONTAB" ACD_SYSTEMD_UNIT_DIR="$SYSD" ACD_LAUNCHAGENTS_DIR="$EMPTY_AGENTS" \
@@ -2207,7 +2239,7 @@ cron_doctor() {  # extra args are passed to the tool
 # under $WORK/cron_named/ contains the very word being asserted on. A fixture named after the
 # thing under test will sooner or later spell that thing into a path and certify it. Both this
 # case and T242 read the column, so neither can be satisfied by a path.
-make_cron cron_named ">> $STATE/cron.err 2>&1"
+make_cron cron_named
 cron_doctor "$LAUNCHER"
 if printf '%s\n' "$OUT" | grep -E '^  scheduler +' | grep -q 'cron'; then
   ok "T240     naming the launcher on a cron box still finds its crontab line"
@@ -2223,7 +2255,7 @@ fi
 expect_because "T241 L13 the crontab's redirection is read as the scheduler's error file" \
   EXPOSED L13 "DIFFERENT error files"
 expect_evidence "T241 L13 …and the evidence names the path from the crontab line" \
-  EXPOSED L13 "$STATE/cron.err"
+  EXPOSED L13 "$CRON_ERR"
 
 # T242 — THE FALSE ROUTE, and it is the one a careless fix walks straight into. `discover_cron`
 # picks the BEST-SCORING launcher in the crontab and overwrites LAUNCHER with it; calling it to
@@ -2246,23 +2278,29 @@ fi
 # twenty lines apart: the pre-filter accepts *BIN*, the classifier only *AGENT_BIN*. Meanwhile
 # agent_invocation — which has known (CLI|CMD|BIN|AGENT) since the I-038 fix — finds the call on
 # the same file without trouble. Two functions of the same tool disagreeing about one launcher.
-make_cron cron_bin ">> $STATE/cron.err 2>&1"
+make_cron cron_bin
 sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|CLAUDE_BIN=\"fakeagent\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
 sed -i.bak 's|\$BOT_CLI|$CLAUDE_BIN|g' "$LAUNCHER" && rm -f "$LAUNCHER.bak"
 cron_doctor
+# Pinned on the EVIDENCE, not on the verdict, and that is forced by the fixture rather than
+# chosen: cron keeps no PATH registry, so L12 lands on its "the scheduler's PATH is unknown"
+# branch whatever happens, and that verdict alone would be green with no name found at all.
+# What C2 is about is WHICH NAME the tool came back with, and the evidence is where it prints it.
 expect_because "T243 L12 a variable called CLAUDE_BIN holds an agent binary name" \
-  GUARDED L12 "resolves under the PATH the chain runs with"
+  UNKNOWN L12 "the scheduler's PATH is unknown"
+expect_evidence "T243 L12 …and the name it found is the one the variable holds" \
+  UNKNOWN L12 "'fakeagent' resolves in YOUR shell"
 
 # T244 — …and the lowercase form too, which is the THIRD list in the same wall: the pre-filter
 # matches *CMD*|*BIN*|*CLI* case-SENSITIVELY, so `claude_bin="claude"` — the ordinary shell
 # convention for a local, and the exact form agent_invocation grew an -i for in I-038 — never
 # reached the classifier at all. Same sentence printed, same cause, one letter of difference.
-make_cron cron_bin_lower ">> $STATE/cron.err 2>&1"
+make_cron cron_bin_lower
 sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|claude_bin=\"fakeagent\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
 sed -i.bak 's|\$BOT_CLI|$claude_bin|g' "$LAUNCHER" && rm -f "$LAUNCHER.bak"
 cron_doctor
-expect_because "T244 L12 …and the lowercase claude_bin, which the pre-filter dropped" \
-  GUARDED L12 "resolves under the PATH the chain runs with"
+expect_evidence "T244 L12 …and the lowercase claude_bin, which the pre-filter dropped" \
+  UNKNOWN L12 "'fakeagent' resolves in YOUR shell"
 
 # T245 — THE FALSE ROUTE for C2, and it is why the fix is not "accept *BIN*". A name ending in
 # DIR says directory, not binary: taken as the agent binary, `/usr/local/bin` is not executable
@@ -2270,11 +2308,15 @@ expect_because "T244 L12 …and the lowercase claude_bin, which the pre-filter d
 # about a chain whose agent is fine. agent_invocation already carries the list of names that say
 # "not a binary" (*DIR *HOME *PID *ARG…), measured in S8's own false-positive hunt; the fix is to
 # share THAT list, not to widen one half of a pair and leave the discipline behind.
-make_cron cron_bin_dir ">> $STATE/cron.err 2>&1"
+make_cron cron_bin_dir
 sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|BIN_DIR=\"/usr/local/bin\"\n: \"\${BOT_CLI:=fakeagent}\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
 cron_doctor
-expect_because "T245 L12 a name ending in DIR is a directory, not the agent binary" \
-  GUARDED L12 "resolves under the PATH the chain runs with"
+# BIN_DIR sits ABOVE BOT_CLI in the launcher, and classify_paths keeps the FIRST name it
+# accepts — so if the exclusion list were dropped, this is the one L12 would report, as an
+# absolute path that is not executable. The assertion says the tool still came back with
+# `fakeagent`, which is only true if BIN_DIR was refused.
+expect_evidence "T245 L12 a name ending in DIR is a directory, not the agent binary" \
+  UNKNOWN L12 "'fakeagent' resolves in YOUR shell"
 
 # T246 — THE CLASS SWEEP, and the only case here that is about method rather than about cron.
 # C3 exists because S86 repaired find_scheduler_for_launcher for the route it was standing on

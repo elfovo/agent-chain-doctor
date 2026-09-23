@@ -664,6 +664,40 @@ EOF
   return 1
 }
 
+# The same thing again for cron, and the "again" is the whole point. S86 gave
+# find_scheduler_for_launcher a systemd arm and stopped there; cron — a route discovery has
+# handled since the first version, and that the README advertises in the same sentence as
+# systemd — was left behind, so `agent-chain-doctor /path/to/launcher` on a cron box answered
+# "no scheduler entry matched this launcher … point at it with --plist", naming a file format
+# that does not exist on Linux. A correction that does not sweep its own class leaves the
+# identical defect one branch over; T246 now reads this file and fails if a discovery route
+# ever loses its named-launcher counterpart again.
+#
+# The acceptance test is IDENTITY, not score, and that distinction is the trap here.
+# `discover_cron` picks the best-scoring launcher in the crontab and OVERWRITES $LAUNCHER with
+# it — reusing it to serve a launcher the user named would silently swap the subject and report
+# on some other chain at exit 0, which is word for word the `--plist` defect this tool fixed in
+# its own argument parsing. This wants the line that runs THAT launcher, or nothing (T242).
+find_cron_for_launcher() {  # $1 = the launcher already chosen
+  local line tok
+  [ -n "$ACD_CRONTAB" ] || command -v crontab >/dev/null 2>&1 || return 1
+  while IFS= read -r line; do
+    case "$line" in ''|\#*) continue ;; esac
+    for tok in $line; do
+      [ "$tok" = "$1" ] || continue
+      SCHEDULER="cron"
+      SCHED_DETAIL=$(trim_line "$line")
+      # The one fact the crontab holds and the launcher cannot: where the schedule line sends
+      # the probe's own errors. Read through cron_errpath for the reason written there.
+      SCHED_ERRPATH=$(cron_errpath "$line")
+      return 0
+    done
+  done <<EOF
+$(crontab_lines)
+EOF
+  return 1
+}
+
 # If the user names the launcher, we still want its scheduler entry — that is where the last
 # exit code and the declared PATH live, and neither is readable from the script itself.
 find_scheduler_for_launcher() {
@@ -683,6 +717,8 @@ find_scheduler_for_launcher() {
       fi
     done
   fi
+  clear_sched
+  find_cron_for_launcher "$LAUNCHER" && return 0
   clear_sched
   find_systemd_for_launcher "$LAUNCHER" && return 0
   clear_sched
@@ -930,6 +966,27 @@ G_LOG=""; G_LOCK=""; G_WAKEUP=""; G_ERR=""; G_PROMPT=""
 AGENT_BIN=""
 STATE_DIR=""
 
+# Does this variable name hold the agent's binary? ONE answer, because the tool used to hold
+# three and they disagreed. Measured in S87 on a real cron chain writing `CLAUDE_BIN="claude"`:
+# agent_invocation found the call (S8 and S15 both GUARDED) while L12 printed "no agent binary
+# name found in the launcher" — the same tool, the same file, twenty lines apart. The three
+# lists were classify_paths' pre-filter (*CMD*|*BIN*|*CLI*, case-SENSITIVE, so `claude_bin` never
+# even arrived), its classifier (*AGENT_CMD*|*AGENT_BIN*|*CLI*, so `CLAUDE_BIN` arrived and was
+# dropped), and agent_invocation's own, which is the one kept here — it is the only one that was
+# ever measured against a foreign corpus, in the I-038 fix.
+#
+# The exclusions are not decoration and they are the reason this is not simply "accept *BIN*":
+# `BIN_DIR="/usr/local/bin"` read as the agent binary makes L12 print "the agent binary path is
+# not executable" about a directory — an accusation invented out of a chain that is fine (T245).
+is_agent_bin_name() {  # $1 = a variable name → 0 if it names the agent's binary
+  local n; n=$(printf '%s' "$1" | tr 'a-z' 'A-Z')
+  case "$n" in
+    ''|*DIR|*HOME|*PID|*ARG|*ARGS|*OPTS|*FLAGS|*TIMEOUT|*REPO|*FILE|*LOG|*PATH|*STATE*|*PROMPT*|*BRIEF*) return 1 ;;
+  esac
+  case "$n" in *CLI*|*CMD*|*BIN*|*AGENT*) return 0 ;; esac
+  return 1
+}
+
 classify_paths() {
   local name raw val kind vtail vdir
   while IFS='	' read -r name raw; do
@@ -943,7 +1000,11 @@ classify_paths() {
     case "$name$raw" in
       *[Ll][Oo][Gg]*|*[Ll][Oo][Cc][Kk]*|*[Ww][Aa][Kk][Ee]*|*[Nn][Ee][Xx][Tt]*|*[Dd][Uu][Ee]*) ;;
       *[Pp][Rr][Oo][Mm][Pp][Tt]*|*[Ee][Rr][Rr]*|*[Mm][Aa][Rr][Kk][Ee][Rr]*|*[Ll][Aa][Ss][Tt]*) ;;
-      *[Rr][Ee][Pp][Oo]*|*WORKDIR*|*PROJECT*|*CMD*|*BIN*|*CLI*) ;;
+      *[Rr][Ee][Pp][Oo]*|*WORKDIR*|*PROJECT*) ;;
+      # Case-INSENSITIVE, and that is the fix: written `*CMD*|*BIN*|*CLI*` this dropped
+      # `claude_bin="claude"` — the ordinary shell convention for a local, and the exact form
+      # agent_invocation grew a `-i` for in I-038 — before any classifier could see it.
+      *[Cc][Mm][Dd]*|*[Bb][Ii][Nn]*|*[Cc][Ll][Ii]*|*[Aa][Gg][Ee][Nn][Tt]*) ;;
       *) continue ;;
     esac
     val=$(expand_value "$raw" 0)
@@ -963,9 +1024,18 @@ classify_paths() {
       esac
     done
     # The agent binary is not a path; it is caught by name before the path filter.
-    case "$name" in
-      *AGENT_CMD*|*AGENT_BIN*|*CLI*) [ -n "$AGENT_BIN" ] || AGENT_BIN="$val" ;;
-    esac
+    if [ -z "$AGENT_BIN" ] && is_agent_bin_name "$name"; then
+      # The name says binary; the VALUE still has to look like one, and this guard exists
+      # because this function reads ASSIGNMENTS where agent_invocation reads running code.
+      # `AGENT_LOOP_INTERVAL=900` passes every name test there is and holds a number — taken
+      # as the binary, L12 would report that '900' does not resolve under the chain's PATH.
+      # A binary is a path or a bare command word: never a pure number, never a flag, never
+      # a whole command line.
+      case "$val" in
+        ''|-*|*[[:space:]]*) ;;
+        *[!0-9]*) AGENT_BIN="$val" ;;
+      esac
+    fi
     case "$val" in */*) ;; *) continue ;; esac
     # Classification reads the variable NAME and the last two segments of its value — not the
     # whole path. It used to read the whole path, and every ancestor directory voted: a chain
@@ -1636,7 +1706,7 @@ check_L12_path() {
   fi
   if [ -z "$AGENT_BIN" ]; then
     finding UNKNOWN L12 live "no agent binary name found in the launcher" \
-      "looked for an assignment whose name says AGENT_CMD / AGENT_BIN / CLI, then for a known agent CLI called by name"
+      "looked for an assignment whose name says CLI / CMD / BIN / AGENT, then for a known agent CLI called by name"
     return
   fi
   case "$AGENT_BIN" in
@@ -1970,9 +2040,7 @@ agent_invocation() {
     # line was `mkdir -p "$AGENT_HOME/state"`, that line became "where the agent runs", and the
     # startup stamp forty lines below it was read as an end-of-session write — GUARDED S16 on a
     # chain with no end-of-session write at all. These names are the ones that say "not a binary".
-    case "$name" in
-      ''|*DIR|*HOME|*PID|*ARG|*ARGS|*OPTS|*FLAGS|*TIMEOUT|*REPO|*FILE|*LOG|*PATH|*STATE*|*PROMPT*|*BRIEF*) continue ;;
-    esac
+    is_agent_bin_name "$name" || continue
     printf '%s' "$l"; return 0
   done <<EOF
 $(code_all_running '\$\{?[A-Za-z_]*([Cc][Ll][Ii]|[Cc][Mm][Dd]|[Bb][Ii][Nn]|[Aa][Gg][Ee][Nn][Tt])[A-Za-z_]*\}?')
