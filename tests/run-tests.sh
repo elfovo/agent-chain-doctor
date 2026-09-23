@@ -2174,6 +2174,128 @@ else
   ok "T231     an empty timer list lets no .timer through the seam"
 fi
 
+
+echo "-- cron: the branch the README announces, reached by naming the launcher (S88)"
+# The S87 measurement (20_experiences/exp-008-livrables/cron-reel/mesure-2026-09-22.md) put a
+# REAL crontab on this host and found three defects behind a discovery that works. C0 and C1
+# were closed there — the ACD_CRONTAB seam, and the greedy sed that lost the error path. C2 and
+# C3 are these cases, and C3 is the one that says something about method: it is LITERALLY the
+# defect S86 fixed for systemd, left standing one branch over. `find_scheduler_for_launcher`
+# grew a systemd arm that day and no cron arm, because the session that repaired its own route
+# did not sweep the class. The sweep is T246 below, and it is written so that a THIRD discovery
+# route added later cannot be forgotten the same way.
+make_cron() {  # $1 = fixture name  $2 = the crontab line's redirection tail
+  make_chain "$1"
+  CRONTAB="$ROOT/crontab.txt"; EMPTY_AGENTS="$ROOT/no-agents"; SYSD="$ROOT/systemd"
+  mkdir -p "$EMPTY_AGENTS" "$SYSD"
+  : > "$SYSD/timers"
+  printf '*/15 * * * * /bin/bash %s %s\n' "$LAUNCHER" "$2" > "$CRONTAB"
+}
+cron_doctor() {  # extra args are passed to the tool
+  ACD_CRONTAB="$CRONTAB" ACD_SYSTEMD_UNIT_DIR="$SYSD" ACD_LAUNCHAGENTS_DIR="$EMPTY_AGENTS" \
+    ACD_LAUNCHCTL_LIST="" ACD_PMSET_LOG="$PMSET" run_doctor "$@"
+}
+
+# T240 — C3 itself. "On Linux, pass the launcher as an argument" is what the README tells cron
+# users to do, and doing it lost the scheduler outright: the hint printed in its place advised
+# `--plist`, a file that cannot exist on a Linux box. Asserted on the scheduler line rather
+# than on a verdict, because that line is the thing the user reads and the thing that was wrong.
+#
+# The anchor is `^  scheduler ` — the report's own two-space column — and it is not fussiness.
+# Written first as `^ +scheduler`, this case was GREEN before the fix existed: L13's evidence
+# line also begins with the word "scheduler", indented, and it prints the LAUNCHER PATH, which
+# under $WORK/cron_named/ contains the very word being asserted on. A fixture named after the
+# thing under test will sooner or later spell that thing into a path and certify it. Both this
+# case and T242 read the column, so neither can be satisfied by a path.
+make_cron cron_named ">> $STATE/cron.err 2>&1"
+cron_doctor "$LAUNCHER"
+if printf '%s\n' "$OUT" | grep -E '^  scheduler +' | grep -q 'cron'; then
+  ok "T240     naming the launcher on a cron box still finds its crontab line"
+else
+  bad "T240     naming the launcher on a cron box still finds its crontab line" \
+    "$(printf '%s\n' "$OUT" | grep -E '^  scheduler +|no scheduler entry matched' | head -n 1 | sed 's/^ *//')"
+fi
+
+# T241 — …and finding it has to be worth something. The crontab line's redirection target is a
+# fact only the scheduler holds; with the launcher draining a DIFFERENT file, L13 is exactly the
+# check that turns that fact into a finding. Without the cron arm this reads "only one side
+# declares a probe error path" — an UNKNOWN standing on a path written on the line above it.
+expect_because "T241 L13 the crontab's redirection is read as the scheduler's error file" \
+  EXPOSED L13 "DIFFERENT error files"
+expect_evidence "T241 L13 …and the evidence names the path from the crontab line" \
+  EXPOSED L13 "$STATE/cron.err"
+
+# T242 — THE FALSE ROUTE, and it is the one a careless fix walks straight into. `discover_cron`
+# picks the BEST-SCORING launcher in the crontab and overwrites LAUNCHER with it; calling it to
+# serve a launcher the user NAMED would answer with some other chain's schedule line and report
+# on it at exit 0. The acceptance test must be "this crontab line runs THAT launcher", the same
+# discipline find_systemd_for_launcher already applies. Here the crontab runs the fixture's own
+# launcher and the user names a copy of it living elsewhere: same content, same markers, so a
+# best-scoring match says yes and only an identity match says no.
+cp "$LAUNCHER" "$ROOT/bot/other-run.sh"; chmod +x "$ROOT/bot/other-run.sh"
+cron_doctor "$ROOT/bot/other-run.sh"
+if printf '%s\n' "$OUT" | grep -E '^  scheduler +' | grep -q 'cron'; then
+  bad "T242     a crontab line that runs ANOTHER launcher is not this one's schedule" \
+    "$(printf '%s\n' "$OUT" | grep -E '^  scheduler +' | head -n 1 | sed 's/^ *//')"
+else
+  ok "T242     a crontab line that runs ANOTHER launcher is not this one's schedule"
+fi
+
+# T243 — C2. The launcher parks its agent in CLAUDE_BIN, the single most ordinary name there is,
+# and L12 answered "no agent binary name found in the launcher". Two lists for one notion,
+# twenty lines apart: the pre-filter accepts *BIN*, the classifier only *AGENT_BIN*. Meanwhile
+# agent_invocation — which has known (CLI|CMD|BIN|AGENT) since the I-038 fix — finds the call on
+# the same file without trouble. Two functions of the same tool disagreeing about one launcher.
+make_cron cron_bin ">> $STATE/cron.err 2>&1"
+sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|CLAUDE_BIN=\"fakeagent\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+sed -i.bak 's|\$BOT_CLI|$CLAUDE_BIN|g' "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+cron_doctor
+expect_because "T243 L12 a variable called CLAUDE_BIN holds an agent binary name" \
+  GUARDED L12 "resolves under the PATH the chain runs with"
+
+# T244 — …and the lowercase form too, which is the THIRD list in the same wall: the pre-filter
+# matches *CMD*|*BIN*|*CLI* case-SENSITIVELY, so `claude_bin="claude"` — the ordinary shell
+# convention for a local, and the exact form agent_invocation grew an -i for in I-038 — never
+# reached the classifier at all. Same sentence printed, same cause, one letter of difference.
+make_cron cron_bin_lower ">> $STATE/cron.err 2>&1"
+sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|claude_bin=\"fakeagent\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+sed -i.bak 's|\$BOT_CLI|$claude_bin|g' "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+cron_doctor
+expect_because "T244 L12 …and the lowercase claude_bin, which the pre-filter dropped" \
+  GUARDED L12 "resolves under the PATH the chain runs with"
+
+# T245 — THE FALSE ROUTE for C2, and it is why the fix is not "accept *BIN*". A name ending in
+# DIR says directory, not binary: taken as the agent binary, `/usr/local/bin` is not executable
+# and L12 would print EXPOSED "the agent binary path is not executable" — a fabricated accusation
+# about a chain whose agent is fine. agent_invocation already carries the list of names that say
+# "not a binary" (*DIR *HOME *PID *ARG…), measured in S8's own false-positive hunt; the fix is to
+# share THAT list, not to widen one half of a pair and leave the discipline behind.
+make_cron cron_bin_dir ">> $STATE/cron.err 2>&1"
+sed -i.bak "s|: \"\${BOT_CLI:=fakeagent}\"|BIN_DIR=\"/usr/local/bin\"\n: \"\${BOT_CLI:=fakeagent}\"|" "$LAUNCHER" && rm -f "$LAUNCHER.bak"
+cron_doctor
+expect_because "T245 L12 a name ending in DIR is a directory, not the agent binary" \
+  GUARDED L12 "resolves under the PATH the chain runs with"
+
+# T246 — THE CLASS SWEEP, and the only case here that is about method rather than about cron.
+# C3 exists because S86 repaired find_scheduler_for_launcher for the route it was standing on
+# and not for the route beside it. A case pinned to cron would close C3 and leave the NEXT
+# discovery route exposed to the identical oversight. So this reads the tool's own source: every
+# scheduler discovery routes must have a named-launcher counterpart. Add a discover_foo
+# tomorrow with no find_foo_for_launcher and this goes red on the day it is written.
+_sweep_missing=""
+for _route in $(grep -oE '^discover_[a-z]+\(\)' "$DOCTOR" | sed 's/()//;s/discover_//'); do
+  grep -qE "find_${_route}_for_launcher|_${_route}_for_launcher\(\)" "$DOCTOR" \
+    || _sweep_missing="$_sweep_missing $_route"
+done
+# launchd is the exception and a real one: find_scheduler_for_launcher walks the LaunchAgents
+# directory inline rather than through a named helper, so it is covered without matching above.
+_sweep_missing=$(printf '%s' "$_sweep_missing" | sed 's/ launchd//')
+if [ -z "$_sweep_missing" ]; then
+  ok "T246     every discovery route is reachable by naming the launcher (class sweep)"
+else
+  bad "T246     every discovery route is reachable by naming the launcher (class sweep)" \
+    "no named-launcher counterpart for:$_sweep_missing"
+fi
 echo "-- the duplicate sweep itself, seen both ways"
 # T152 has no fixture: it reads the output of every other run. S56 measured that EIGHT of the
 # 77 fine-mutation cells — 10 % of the matrix — die by T152 ALONE, no other test noticing
