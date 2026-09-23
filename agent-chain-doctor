@@ -1728,7 +1728,7 @@ check_L12_path() {
   fi
   if [ -z "$AGENT_BIN" ]; then
     finding UNKNOWN L12 live "no agent binary name found in the launcher" \
-      "looked for an assignment whose name says CLI / CMD / BIN / AGENT, then for a known agent CLI called by name"
+      "looked for an assignment whose name says CLI / CMD / BIN, then for a known agent CLI called by name"
     return
   fi
   case "$AGENT_BIN" in
