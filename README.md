@@ -212,7 +212,7 @@ the count was wrong. Only `L4` and `L6` are real, exactly as first written.
 `for sid in S1 … S16; do expect "…" GUARDED "$sid"; done` — so its check id is a **variable**,
 not a literal. The counting rule read assertion call sites for a literal id, and this one site
 is the only one in the suite that has none. The suite's own static pass says so out loud, every
-run: *144 assertion call sites read — 143 with a literal id, 1 with a computed id.* The instrument
+run: *170 assertion call sites read — 169 with a literal id, 1 with a computed id.* The instrument
 that would have caught this was already printing the answer above the number that was wrong.
 
 So the honest lesson is not the tidy one this paragraph used to draw (*a count of how well

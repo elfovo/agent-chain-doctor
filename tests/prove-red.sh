@@ -299,12 +299,30 @@ echo
 # be incomplete, it is not allowed to be quiet about it.
 echo "== static 2: does every test name carry the id it asserts?"
 awk '
-  function flush(s, ln,    kind, name, rest, n, a) {
+  # The closing quote of the test name is the first quote NOT preceded by a backslash. The
+  # naive `sub(/".*$/, "", name)` cut the name at the first `\"` INSIDE it, and every field
+  # after it shifted by one: run-tests.sh:1329 (`T219 L2  \$(cd \"\$X/..\" …`) came out with
+  # verdict `\$X/..\"` and id `\&\&`, so it fell through to UNPARSED and this control never
+  # checked it. One assertion escaping the "does the name carry its id" pass is exactly the
+  # hole this pass exists to close. Measured 2026-09-24: 1 of 170 call sites.
+  function quote_end(str,   i, c) {
+    i = 1
+    while (i <= length(str)) {
+      c = substr(str, i, 1)
+      if (c == "\\") { i += 2; continue }
+      if (c == "\"") return i
+      i++
+    }
+    return 0
+  }
+  function flush(s, ln,    kind, name, rest, n, a, e) {
     if (s !~ /^[[:space:]]*expect(_because|_evidence)?[[:space:]]+"/) return
     match(s, /expect(_because|_evidence)?/); kind = substr(s, RSTART, RLENGTH)
     rest = s; sub(/^[^"]*"/, "", rest)
-    name = rest; sub(/".*$/, "", name)
-    sub(/^[^"]*"[[:space:]]*/, "", rest)
+    e = quote_end(rest)
+    if (e == 0) { name = rest; rest = "" }
+    else { name = substr(rest, 1, e - 1); rest = substr(rest, e + 1) }
+    sub(/^[[:space:]]*/, "", rest)
     n = split(rest, a, /[[:space:]]+/)
     printf "%d\t%s\t%s\t%s\t%s\n", ln, kind, (n >= 1 ? a[1] : "-"), (n >= 2 ? a[2] : "-"), name
   }
@@ -316,7 +334,7 @@ awk '
   END { if (buf != "") flush(buf, start) }
 ' "$SUITE" > "$WORK/calls.tsv"
 
-CALL_SITES=0; LITERAL_ID=0; COMPUTED_ID=0; MISLABELLED=0
+CALL_SITES=0; LITERAL_ID=0; COMPUTED_ID=0; MISLABELLED=0; UNPARSED_ID=0
 : > "$WORK/mislabelled.txt"
 while IFS="	" read -r ln kind verdict id name; do
   CALL_SITES=$((CALL_SITES + 1))
@@ -339,14 +357,32 @@ while IFS="	" read -r ln kind verdict id name; do
       esac
       ;;
     *)
+      UNPARSED_ID=$((UNPARSED_ID + 1))
       printf '   UNPARSED  run-tests.sh:%s  %s — id token "%s" not understood by this control\n' \
         "$ln" "$kind" "$id" >> "$WORK/mislabelled.txt"
       ;;
   esac
 done < "$WORK/calls.tsv"
 
-printf '   %s assertion call sites read — %s with a literal id, %s with a computed id.\n' \
-  "$CALL_SITES" "$LITERAL_ID" "$COMPUTED_ID"
+# The headline must ACCOUNT FOR every call site it claims to have read. Until 2026-09-24 it
+# printed two of the three buckets, so `168 with a literal id, 1 with a computed id` sat under
+# `170 assertion call sites read` and the missing one was visible only to a reader who did the
+# subtraction. A summary whose parts do not sum to its total invites the reader to trust the
+# total. The unparsed bucket is now printed whenever it is non-empty, and the closure is
+# asserted below: if the buckets ever stop summing, this pass fails loudly instead of
+# publishing a number that does not add up.
+if [ "$UNPARSED_ID" -gt 0 ]; then
+  printf '   %s assertion call sites read — %s with a literal id, %s with a computed id, %s not understood by this control.\n' \
+    "$CALL_SITES" "$LITERAL_ID" "$COMPUTED_ID" "$UNPARSED_ID"
+else
+  printf '   %s assertion call sites read — %s with a literal id, %s with a computed id.\n' \
+    "$CALL_SITES" "$LITERAL_ID" "$COMPUTED_ID"
+fi
+if [ "$((LITERAL_ID + COMPUTED_ID + UNPARSED_ID))" -ne "$CALL_SITES" ]; then
+  printf '   BUCKETS DO NOT CLOSE: %s + %s + %s != %s — this control is miscounting itself.\n' \
+    "$LITERAL_ID" "$COMPUTED_ID" "$UNPARSED_ID" "$CALL_SITES"
+  exit 1
+fi
 if [ -s "$WORK/mislabelled.txt" ]; then
   cat "$WORK/mislabelled.txt"
   echo "   → until these are renamed, the matrix under-reports named coverage for those ids."
