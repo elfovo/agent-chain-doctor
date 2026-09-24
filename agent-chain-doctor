@@ -232,7 +232,15 @@ wrap_ev() {
     word="${rest%% *}"
     if [ "$word" = "$rest" ]; then rest=""; else rest="${rest#* }"; fi
     [ -n "$word" ] || continue
-    if [ ${#word} -gt "$EV_WIDTH" ]; then word="${word:0:$((EV_WIDTH - 1))}…"; fi
+    # A PATH keeps its tail: the file name is what tells two paths apart, and cutting it made
+    # L13 print "…/cron_named/…" twice under a verdict saying the two files are DIFFERENT
+    # (macOS, where $TMPDIR alone is ~50 characters). Anything else keeps its head, as before.
+    if [ ${#word} -gt "$EV_WIDTH" ]; then
+      case "$word" in
+        */*) word="…${word:$(( ${#word} - EV_WIDTH + 1 ))}" ;;
+        *)   word="${word:0:$((EV_WIDTH - 1))}…" ;;
+      esac
+    fi
     if [ -z "$line" ]; then line="$word"
     elif [ $(( ${#line} + 1 + ${#word} )) -le "$EV_WIDTH" ]; then line="$line $word"
     else printf '%s%s\n' "$EV_INDENT" "$line"; line="$word"
@@ -602,7 +610,10 @@ read_systemd_registry() {  # $1 = the .service unit
 
 discover_systemd() {
   local unit script best="" best_n=-1 cand execline svc
-  command -v systemctl >/dev/null 2>&1 || return 1
+  # The seam first: a suite driving systemd through ACD_SYSTEMD_UNIT_DIR on a host WITHOUT
+  # systemctl (macOS) used to be turned away here, before the seam was ever read — T226-T229
+  # said "they run on macOS too" and had never once done so.
+  [ -n "$ACD_SYSTEMD_UNIT_DIR" ] || command -v systemctl >/dev/null 2>&1 || return 1
   while IFS= read -r unit; do
     [ -n "$unit" ] || continue
     # A .timer unit has [Timer]/OnCalendar/Unit=. `ExecStart` is a [Service] directive and
