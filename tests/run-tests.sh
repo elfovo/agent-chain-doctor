@@ -1288,6 +1288,22 @@ doctor
 expect_evidence "T217 L2  \$LOG_FILE is read as the main log, like \$LOG and \$RUNLOG" \
   EXPOSED L2 "run.out"
 
+# T248 — a path wider than the evidence column must keep its FILE NAME. wrap_ev used to cut an
+# over-wide token at its head and drop the tail: fine for a minified source line, fatal for a
+# path, whose distinguishing part is the end. Measured on macOS 2026-09-23, where $TMPDIR alone
+# is ~50 characters: T217-T219 and T241 went red there while the Linux runner reported the same
+# suite green, and the report printed L13 as "scheduler writes …/cron_named/… — launcher drains
+# …/cron_named/…", two identical strings under a verdict saying they are DIFFERENT. A real user
+# under ~/Library/Application Support/ gets the same. The fixture name below makes the path
+# outgrow the column on EVERY host, so this case does not depend on where the suite runs.
+make_chain d1logfile_a_fixture_name_long_enough_that_no_host_prints_this_path_on_one_line
+mutate 's|^RUNLOG="\$BOT_STATE/run.log"|LOG_FILE="$BOT_STATE/run.out"|' 's|\$RUNLOG|$LOG_FILE|g' 's|\${RUNLOG}|${LOG_FILE}|g'
+rm -f "$STATE/run.log"
+printf '%s\n' "$(( $(date +%s) - 600 ))" > "$STATE/run.next"
+doctor
+expect_evidence "T248 L2  a path wider than the evidence column keeps its file name" \
+  EXPOSED L2 "state/run.out"
+
 # …et la correction ne doit pas transformer n'importe quel nom contenant "log" en journal :
 # un LOGIN_SHELL ou un CATALOG_ROOT n'est pas un fichier de journal, et `render-routine.sh`
 # du corpus I-033 declare precisement `catalog_root=`. Sans ce cas, elargir D1 par un simple
@@ -2255,7 +2271,7 @@ fi
 expect_because "T241 L13 the crontab's redirection is read as the scheduler's error file" \
   EXPOSED L13 "DIFFERENT error files"
 expect_evidence "T241 L13 …and the evidence names the path from the crontab line" \
-  EXPOSED L13 "$CRON_ERR"
+  EXPOSED L13 "${CRON_ERR#"$WORK"/}"
 
 # T242 — THE FALSE ROUTE, and it is the one a careless fix walks straight into. `discover_cron`
 # picks the BEST-SCORING launcher in the crontab and overwrites LAUNCHER with it; calling it to
