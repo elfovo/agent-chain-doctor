@@ -3,7 +3,7 @@
 > Written end-to-end by an autonomous AI agent (Claude Code). It is one file — read it before
 > you run it. Details in [Origin of this work](#origin-of-this-work).
 >
-> **Zero EXPOSED means "these 29 checks found nothing" — never "your chain is fine".** The
+> **Zero EXPOSED means "these 30 checks found nothing" — never "your chain is fine".** The
 > false-negative rate is unknown and will stay unknown; [What it does not
 > do](#what-it-does-not-do--read-this-before-trusting-a-clean-report) says why.
 
@@ -13,7 +13,7 @@ and tells you which known ways of stopping silently it is currently exposed to.*
 It is *not* a liveness monitor and it cannot tell you your agent is doing good work. It is one
 shell script — no dependencies, no network, no writes, no privileges — that inspects a scheduled
 agent chain (launchd / cron / systemd + the session script they run) and returns, for each of
-29 checks, **exposed**, **guarded** or **undecidable**, with the evidence that establishes the
+30 checks, **exposed**, **guarded** or **undecidable**, with the evidence that establishes the
 verdict.
 
 ```sh
@@ -129,8 +129,8 @@ FINDINGS
   Q1  Does every session write a journal entry, including the empty ones? …
 ```
 
-**The 29 checks always report — all of them, exactly once, whatever your chain looks like.** The
-three counters always add up to 29. A check that finds nothing to measure says `UNKNOWN` and says
+**The 30 checks always report — all of them, exactly once, whatever your chain looks like.** The
+three counters always add up to 30. A check that finds nothing to measure says `UNKNOWN` and says
 what it was missing; none of them may quietly not appear. (That guarantee is younger than the
 tool: three checks used to vanish when their subject was absent, and no test noticed. Cases T68 to
 T71 now hold it.)
@@ -197,7 +197,7 @@ those two out is how the same count first came back one short here:
 |---|---|
 | `EXPOSED` | **29 of 29** (2026-09-04) |
 | `UNKNOWN` | **29 of 29** (2026-09-04) — it really was 13 when that was written on 2026-08-30; the passes of 2026-08-31 and 2026-09-03 took it to 22 and then 29, and the sentence never moved |
-| `GUARDED` | **27 of 29** (2026-09-10) — missing on `L4` and `L6`, and on nothing else |
+| `GUARDED` | **28 of 30** (2026-09-28) — missing on `L4` and `L6`, and on nothing else |
 
 **The `GUARDED` line has now been wrong twice, in opposite directions, and the second error was
 this page's own correction of the first.** A sentence here long claimed *twenty-seven of the 29*
@@ -209,10 +209,10 @@ assertion, and has been for longer than the table has existed. The uncounted sen
 the count was wrong. Only `L4` and `L6` are real, exactly as first written.
 
 **How a count went under, and why it is the same defect the tool sells.** `T51` is a loop —
-`for sid in S1 … S16; do expect "…" GUARDED "$sid"; done` — so its check id is a **variable**,
+`for sid in S1 … S17; do expect "…" GUARDED "$sid"; done` — so its check id is a **variable**,
 not a literal. The counting rule read assertion call sites for a literal id, and this one site
 is the only one in the suite that has none. The suite's own static pass says so out loud, every
-run: *170 assertion call sites read — 169 with a literal id, 1 with a computed id.* The instrument
+run: *177 assertion call sites read — 176 with a literal id, 1 with a computed id.* The instrument
 that would have caught this was already printing the answer above the number that was wrong.
 
 So the honest lesson is not the tidy one this paragraph used to draw (*a count of how well
@@ -224,13 +224,13 @@ rule quietly excluded sixteen assertions written as one loop. A count that disag
 standing claim is a reason to go read both — not a reason to publish the count.
 
 *Re-run it yourself:* `grep -nE 'expect(_because|_evidence)? .*GUARDED' tests/run-tests.sh`
-returns the literal-id sites; the loop at `tests/run-tests.sh:562` is the sixteen the grep cannot
+returns the literal-id sites; the loop at `tests/run-tests.sh:646` is the seventeen the grep cannot
 see, and `bash tests/run-tests.sh 2>&1 | grep T51` shows them passing.
 
 `UNKNOWN` is still the side to watch, and the reason has not changed: a check that can only be
 seen firing and being quiet has not been shown to abstain for the right reason. That proves every check *can* fire on the defect it was
 written for. It proves nothing whatsoever about defects the catalogue never thought of — and
-the defects and the checks have the same author. **A report with zero EXPOSED means "these 29
+the defects and the checks have the same author. **A report with zero EXPOSED means "these 30
 checks found nothing", not "your chain is fine".**
 
 Four more limits, stated here rather than discovered later:
@@ -320,7 +320,7 @@ The corpus is versioned with the experiment and the run is reproducible, mtimes 
 
 ---
 
-## The 29 checks
+## The 30 checks
 
 **Live state** — exact, no reserve.
 
@@ -360,14 +360,23 @@ The corpus is versioned with the experiment and the run is reproducible, mtimes 
 | S14 | Is the wakeup shown as a readable time without having been checked as a number? (`date -r 0` prints "Thu 01:00" instead of failing.) |
 | S15 | Is the agent's exit code captured, logged, and never acted on? |
 | S16 | Is the spacing marker stamped only at the *start* of the session, so the floor stops biting after the longest ones? |
+| S17 | If the agent blocks at startup and writes nothing, what ends it — a short life-sign control, or only the whole session budget? |
 
-The last three are a different shape from the first thirteen, and it is worth knowing why. Each
+S14 to S16 are a different shape from the first thirteen, and it is worth knowing why. Each
 of those looks for a dangerous pattern; these three look for a **construction** and then for the
 reading that gives it meaning. They exist because on 2026-08-30 this tool was pointed at the same
 launcher before and after three defects of that family were repaired in it, and printed a report
 identical line by line on both. A pattern-matcher cannot see a line that is not there. When the
 construction itself is absent — no wakeup ever formatted, no exit code ever captured, no marker
 anything paces on — they answer `UNKNOWN`, never `GUARDED`.
+
+S17 is the only check whose failure shape comes from other people's chains rather than the
+author's: eight public reports (anthropics/claude-code #74617 #75613 #78903 #79610 #86074 #89537
+#91987 #56540) of an agent that starts, writes nothing, and is only ended by the session budget.
+S8 answers `GUARDED` on every one of them — a four-hour `timeout` *is* a bound. S17 asks whether
+that bound is short enough to notice a mute start (1800 s, a judgement printed next to the value
+it judged), or whether a life-sign control watches the first output. A bound it cannot resolve
+stays `UNKNOWN`.
 
 ---
 
@@ -423,12 +432,12 @@ here as one proof and not the proof.
 
 ### Does the suite actually watch each check?
 
-`LEGACY=1` neuters all 29 checks at once, which proves the suite needs *some* check to be there.
+`LEGACY=1` neuters all 30 checks at once, which proves the suite needs *some* check to be there.
 It does not prove that any test would still go red if **one** check stopped working. So:
 
 ```sh
 bash tests/prove-red.sh --self-test   # the harness proves itself, both directions
-bash tests/prove-red.sh               # the full matrix (58 cells: 29 checks × 2 mutants)
+bash tests/prove-red.sh               # the full matrix (60 cells: 30 checks × 2 mutants)
 bash tests/prove-red.sh --only L1,S8  # a subset, while iterating
 bash tests/prove-red.sh --jobs 1      # serial. The default is 6, and measurably slower --
                                       # see the timing table below before you raise it

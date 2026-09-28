@@ -169,7 +169,17 @@ expect_once() {  # $1 name  $2 id
 # carried 24, 25, 26 or 27 lines while the tool's own header promised "three verdicts and no
 # fourth". Silence was the fourth verdict, and no test saw it: the suite only ever asked
 # "is THIS id present with THIS verdict", never "are they all there, once each".
-ALL_IDS="L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 L12 L13 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14 S15 S16"
+ALL_IDS="L1 L2 L3 L4 L5 L6 L7 L8 L9 L10 L11 L12 L13 S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14 S15 S16 S17"
+# The three totals below used to be the literal 29, written by hand in three places, and
+# T71b was added the day one of them drifted. The same lesson applies to the SUITE: a count
+# it asserts is a count it must derive. N_CHECKS comes from the tool's own source, and the
+# hand-written list above is confronted with it once — so a check added without a test still
+# goes red here, and a check added WITH its tests stops costing three edits in three files.
+N_CHECKS=$(grep -cE '^check_[LS][0-9]+_[a-z_0-9]+\(\) \{$' "$DOCTOR")
+N_LISTED=$(printf '%s\n' $ALL_IDS | grep -c '[LS]')
+if [ "$N_LISTED" -eq "$N_CHECKS" ]; then ok "T00  the catalogue this suite names is the catalogue the tool defines ($N_CHECKS)"
+else bad "T00  the catalogue this suite names is the catalogue the tool defines" \
+  "this suite lists $N_LISTED ids, the tool defines $N_CHECKS checks"; fi
 expect_full_catalogue() {  # $1 name
   local ids trouble="" id n total
   ids=$(printf '%s\n' "$OUT" | grep -oE '^  (EXPOSED|GUARDED|UNKNOWN)[[:space:]]+[LS][0-9]+[[:space:]]' | awk '{print $2}')
@@ -178,7 +188,7 @@ expect_full_catalogue() {  # $1 name
     [ "$n" -eq 1 ] || trouble="$trouble $id×$n"
   done
   total=$(printf '%s\n' "$ids" | grep -c '[LS]')
-  if [ -z "$trouble" ] && [ "$total" -eq 29 ]; then ok "$1"
+  if [ -z "$trouble" ] && [ "$total" -eq "$N_CHECKS" ]; then ok "$1"
   else bad "$1" "total=$total${trouble:+ ; not exactly once:$trouble}"; fi
 }
 
@@ -225,6 +235,7 @@ set -uo pipefail
 : "${BOT_ARGS=--quiet}"
 : "${BOT_BRIEF:=$BOT_HOME/session-prompt.txt}"
 : "${TIMEOUT:=14400}"
+: "${LIFESIGN_TIMEOUT:=600}"
 : "${DEADMAN:=10800}"
 : "${LOCK_MAX_AGE:=14400}"
 : "${MAX_AHEAD:=2592000}"
@@ -281,9 +292,19 @@ AGENT_PID=$!
   kill -0 "$AGENT_PID" 2>/dev/null || exit 0
   kill -TERM "$AGENT_PID" 2>/dev/null ) &
 WATCHDOG_PID=$!
+LIFESIGN_PID=""
+if [ "$LIFESIGN_TIMEOUT" -gt 0 ]; then
+  ( sleep "$LIFESIGN_TIMEOUT"
+    [ -s "$RUNLOG" ] && exit 0
+    kill -0 "$AGENT_PID" 2>/dev/null || exit 0
+    echo "no life sign after ${LIFESIGN_TIMEOUT}s — a mute start, killed on its own clock" >> "$RUNLOG"
+    kill -TERM "$AGENT_PID" 2>/dev/null ) &
+  LIFESIGN_PID=$!
+fi
 wait "$AGENT_PID"
 BOT_RC=$?
 kill "$WATCHDOG_PID" 2>/dev/null
+[ -n "$LIFESIGN_PID" ] && kill "$LIFESIGN_PID" 2>/dev/null
 SHOWN_EPOCH=$(cat "$DUE_FILE" 2>/dev/null)
 case "$SHOWN_EPOCH" in ''|0|*[!0-9]*) SHOWN_EPOCH="" ;; esac
 SHOWN_TIME=$(date -r "$SHOWN_EPOCH" '+%a %H:%M' 2>/dev/null || echo "epoch $SHOWN_EPOCH")
@@ -617,12 +638,12 @@ else bad "T39  an observed run modified nothing in the chain" "$(diff <(printf '
 
 echo
 echo "-- the static checks: GUARDED on the correct launcher"
-# The negative witness. Sixteen heuristics reading shell they did not write, on a launcher
-# that is correct on all sixteen counts — this block is the one that decides whether they are
+# The negative witness. Seventeen heuristics reading shell they did not write, on a launcher
+# that is correct on all seventeen counts — this block is the one that decides whether they are
 # worth printing at all. Each also has to prove a POSITIVE pattern: "no dangerous shape found"
 # is UNKNOWN, never GUARDED, so a check that cannot recognise protection can never land here.
 make_chain sclean; doctor
-for sid in S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14 S15 S16; do
+for sid in S1 S2 S3 S4 S5 S6 S7 S8 S9 S10 S11 S12 S13 S14 S15 S16 S17; do
   expect "T51/$sid  $sid guarded on the correct launcher" GUARDED "$sid"
 done
 
@@ -758,6 +779,45 @@ mutate 's|^: "\${MIN_SPACING:=900}"|: "${MIN_SPACING:=900}"\nfinish_session() { 
        's|^if \[ -n "\$SESSION_END" \].*|finish_session|'
 doctor
 expect "T125 S16  a write inside a helper called at the end is not 'only at the start'" GUARDED S16
+# S17 — the mute start. This is the only check in this tool whose failure shape was measured on
+# OTHER PEOPLE'S chains (eight public reports, 2026-09-26), and its whole point is that S8 is
+# green on every one of them: `( sleep 14400 ; kill )` IS a bound. So the red here removes the
+# short-fuse control and changes nothing else — S8 stays GUARDED in the same report, which is
+# the fact the check exists to state.
+make_chain s17a; mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d'; doctor
+expect "T129b S17  a mute start ended only by the 4h budget" EXPOSED S17
+expect "T129c S17  …and S8 is GUARDED in that very same report — the two questions differ" GUARDED S8
+# The threshold is the check, so it is tested on both sides of itself rather than asserted in
+# prose. A chain bounded at ten minutes needs no life sign: the bound already notices.
+make_chain s17b; mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d' 's|^: "\${TIMEOUT:=14400}"|: "${TIMEOUT:=600}"|'; doctor
+expect_because "T129d S17  a bound short enough to double as a detector → GUARDED" \
+  GUARDED S17 "short enough to double as a detector"
+# An unresolvable bound is UNKNOWN, never an accusation: a number this tool invented would be
+# worse than no number, and the wrong side of that choice is the one that cries wolf on chains
+# whose budget comes out of the scheduler's environment.
+make_chain s17c
+mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d' '/^: "\${TIMEOUT:=14400}"$/d' 's|( sleep "\$TIMEOUT"|( sleep "$SESSION_BUDGET"|'
+doctor
+expect_because "T129e S17  a bound this tool cannot resolve → UNKNOWN, not EXPOSED" \
+  UNKNOWN S17 "could not resolve"
+# No bound at all is S8's finding, not this one. Two accusations for one shape would double the
+# apparent size of the report without adding a fact.
+make_chain s17f
+mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d' '/^( sleep "\$TIMEOUT"$/,/^WATCHDOG_PID=\$!$/d' '/kill "\$WATCHDOG_PID"/d'
+doctor
+expect_because "T129g S17  nothing bounding the run at all → UNKNOWN, S8 owns that one" \
+  UNKNOWN S17 "nothing bounds the run at all"
+expect "T129h S17  …and S8 does make the accusation there" EXPOSED S8
+# `timeout -k 30 14400` — the option that takes a value of its own. Read naively this is a
+# thirty-second budget, which is the flattering direction: it would answer GUARDED on exactly
+# the chains this check was written for.
+make_chain s17d
+mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d' \
+       's|^  "\$BOT_CLI" -p "\$(cat "\$BOT_BRIEF")" \$BOT_ARGS >> "\$RUNLOG" 2>&1 &|  timeout -k 30 "$TIMEOUT" "$BOT_CLI" -p "$(cat "$BOT_BRIEF")" $BOT_ARGS >> "$RUNLOG" 2>\&1 \&|'
+doctor
+expect_evidence "T129f S17  'timeout -k 30 14400' is a four-hour budget, not a thirty-second one" \
+  EXPOSED S17 "14400s is the only clock"
+
 # And the positive side, the trap S5 fell into once (T111): a GUARDED whose evidence points at
 # the value rather than at its protection cannot be falsified by reading — delete the guard and
 # the report still cites a line that is still there.
@@ -977,7 +1037,7 @@ if [ "$RC" -eq 1 ]; then ok "T40  exit code 1 when something is exposed"; else b
 # unmeasured — in the test that guards the report format. Counted both ways now.
 n_head=$(printf '%s\n' "$OUT" | grep -cE '^  (EXPOSED|GUARDED|UNKNOWN) +[LS][0-9]+ ')
 n_lvl=$(printf '%s\n' "$OUT" | grep -E '^  (EXPOSED|GUARDED|UNKNOWN) +[LS][0-9]+ ' | grep -cE ' \[(live|static)\]$')
-if [ "$n_head" -eq 29 ] && [ "$n_lvl" -eq "$n_head" ]; then ok "T41  EVERY finding names its level of proof ($n_lvl/$n_head)"
+if [ "$n_head" -eq "$N_CHECKS" ] && [ "$n_lvl" -eq "$n_head" ]; then ok "T41  EVERY finding names its level of proof ($n_lvl/$n_head)"
 else bad "T41  EVERY finding names its level of proof" "$n_lvl of $n_head verdict lines carry [live] or [static]"; fi
 if ! printf '%s\n' "$OUT" | grep -qE '^  OK |[Aa]ll (is |looks )?(fine|good|well)|your chain is healthy'; then ok "T42  no fourth verdict, no reassuring summary"
 else bad "T42  no fourth verdict, no reassuring summary"; fi
@@ -1046,8 +1106,8 @@ n_e=$(printf '%s\n' "$OUT" | grep -cE '^  EXPOSED')
 n_g=$(printf '%s\n' "$OUT" | grep -cE '^  GUARDED')
 n_u=$(printf '%s\n' "$OUT" | grep -cE '^  UNKNOWN')
 if printf '%s\n' "$OUT" | grep -qE "^  $n_e exposed · $n_g guarded · $n_u unknown\$" \
-   && [ $((n_e + n_g + n_u)) -eq 29 ]; then ok "T71  the counters match the lines and add up to 29"
-else bad "T71  the counters match the lines and add up to 29" \
+   && [ $((n_e + n_g + n_u)) -eq "$N_CHECKS" ]; then ok "T71  the counters match the lines and add up to $N_CHECKS"
+else bad "T71  the counters match the lines and add up to $N_CHECKS" \
   "counted $n_e/$n_g/$n_u, footer: $(printf '%s\n' "$OUT" | grep -E 'exposed ·' | head -n 1 | sed 's/^ *//')"; fi
 # ---------------------------------------------------------------------------------------
 # T71b — and the SENTENCE has to name the same number as the counters.
@@ -1550,7 +1610,11 @@ expect "T107 L6  a trailing comment mentioning mkdir does not arm the lock-shape
 # above had already been hardened against exactly this (code_first_running); the timeout
 # lookup had not.
 make_chain b3
-mutate 's|^( sleep "$TIMEOUT"|( : "$TIMEOUT"|' \
+# The life-sign block goes too, and that is not incidental: B3's subject is a launcher with NO
+# real watchdog and a log line that talks like one, so leaving the second `( sleep )` in place
+# would earn a GUARDED that has nothing to do with the defect under test.
+mutate '/^LIFESIGN_PID=""$/,/^fi$/d' '/LIFESIGN/d' \
+       's|^( sleep "$TIMEOUT"|( : "$TIMEOUT"|' \
        's|^wait "$AGENT_PID"|echo "timeout 900 reached, killing the agent" >> "$RUNLOG"\
 wait "$AGENT_PID"|'
 doctor

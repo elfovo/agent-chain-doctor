@@ -2954,6 +2954,144 @@ EOF
   fi
 }
 
+# S17 — the MUTE start. "Bounded" and "noticed" are not the same answer, and S8 only asks the
+# first one.
+#
+# This is the one failure shape in this tool with evidence from OTHER PEOPLE'S chains rather
+# than from mine. Eight distinct public authors, July to September 2026, describe the same
+# night: the scheduler fires, the agent process starts, and it blocks at STARTUP — no output,
+# no transcript file, not one line — and the only thing that ever ends it is the total session
+# budget. One of them: "hung at process startup for 4 hours on two consecutive nights". Three
+# of the eight gave up waiting and wrote their own watchdog. (anthropics/claude-code #74617,
+# #75613, #78903, #79610, #86074, #89537, #91987, #56540, collected 2026-09-26.)
+#
+# S8 answers GUARDED on every one of those chains, correctly and uselessly: `timeout 14400` is
+# a bound. It is also the whole night. A healthy start writes its transcript within about ten
+# seconds, so the distance between "this hung" and "this is working" is measured in seconds —
+# which means a budget sized for the WORK cannot double as the detector for the START.
+#
+# The threshold is where the verdict changes, so it is printed next to the value it judged:
+# at or under MUTE_MAX_S a mute start costs one probe, above it a mute start costs the budget.
+# 1800 s is a judgement, not a measurement, and a chain whose agent legitimately says nothing
+# for an hour is a real chain — this finding names its own escape rather than hiding it.
+MUTE_MAX_S=1800
+
+# duration_seconds WORD → the word as a number of seconds, or nothing. `900`, `15m`, `4h`, `1d`
+# are all legal arguments to timeout(1) and all four appear in the wild. A word this cannot
+# read returns nothing, which the caller turns into UNKNOWN — never into an accusation.
+duration_seconds() {
+  local w="$1" n u
+  case "$w" in
+    *[!0-9smhd]*|'') return 1 ;;
+    *[0-9]) n="$w"; u="" ;;
+    *) n="${w%?}"; u="${w##*[0-9]}" ;;
+  esac
+  case "$n" in ''|*[!0-9]*) return 1 ;; esac
+  case "$u" in
+    ''|s) printf '%s' "$n" ;;
+    m)    printf '%s' "$((n * 60))" ;;
+    h)    printf '%s' "$((n * 3600))" ;;
+    d)    printf '%s' "$((n * 86400))" ;;
+    *)    return 1 ;;
+  esac
+}
+
+# timeout_duration_word CODELINE → the DURATION argument of the timeout(1) call on that line.
+# Options are skipped, including the two that take a value of their own (`-k 30`, `-s TERM`),
+# because `timeout -k 30 900 agent` would otherwise be read as a thirty-second budget — the
+# flattering direction, and the one that would have made this check answer GUARDED on the
+# chains it exists for.
+timeout_duration_word() {
+  local rest="${1#*:}" w seen=0
+  rest="${rest#*timeout}"
+  for w in $rest; do
+    case "$w" in
+      -k|--kill-after|-s|--signal) seen=1; continue ;;
+      --kill-after=*|--signal=*|--preserve-status|--foreground|-*) continue ;;
+    esac
+    if [ "$seen" -eq 1 ]; then seen=0; continue; fi
+    printf '%s' "$w"; return 0
+  done
+  return 1
+}
+
+check_S17_mute_start() {
+  local call; call=$(agent_invocation) || call=""
+  if [ -z "$call" ]; then
+    finding UNKNOWN S17 static "no agent invocation to watch for a mute start" \
+      "this check needs to see the call whose first output it would be waiting for"
+    return
+  fi
+  # A life-sign control, in either of the two shapes anyone actually writes it: a variable whose
+  # NAME says what it watches, or a freshness probe on a file the agent is expected to create.
+  # Mentions count here and nowhere else in this file, on purpose: the name of a timeout is not
+  # evidence that it fires, but a launcher that has the words has the mechanism, and the address
+  # is printed so the reader can go and disagree.
+  local ls
+  ls=$(code_first '[A-Za-z_]*(LIFESIGN|LIFE_SIGN|HEARTBEAT|HEART_BEAT|SIGNEDEVIE|SIGNE_DE_VIE|FIRSTBYTE|FIRST_BYTE|NOOUTPUT|NO_OUTPUT)[A-Za-z_]*') || ls=""
+  if [ -z "$ls" ]; then
+    ls=$(code_first_running '(find|stat)[^;|&]*(-mmin|-newer|-cmin)|(-newer|-mmin)[[:space:]]') || ls=""
+  fi
+  if [ -n "$ls" ]; then
+    finding GUARDED S17 static "a short-fuse life-sign control watches the start" \
+      "$(ev "$ls")" \
+      "so a start that produces nothing is ended on its own clock, not on the session budget"
+    return
+  fi
+  # No life sign. Then everything depends on how long the ONE bound in the chain is.
+  local t w secs src=""
+  t=$(code_first_running '(^|[^A-Za-z_-])(timeout|gtimeout)[[:space:]]+[-"'"'"'0-9$]') || t=""
+  if [ -n "$t" ]; then
+    w=$(timeout_duration_word "$t") || w=""
+    src="$t"
+  else
+    # The pure-shell watchdog, read exactly where S8 reads it: `( sleep N ; kill … ) &`.
+    local dm; dm=$(code_first '\([[:space:]]*sleep[[:space:]]') || dm=""
+    if [ -n "$dm" ]; then
+      w=$(printf '%s' "${dm#*:}" | sed -nE 's/.*\([[:space:]]*sleep[[:space:]]+"?([^[:space:]";)]+)"?.*/\1/p')
+      src="$dm"
+    fi
+  fi
+  if [ -z "$src" ]; then
+    finding UNKNOWN S17 static "nothing bounds the run at all, so nothing to size" \
+      "$(ev "$call")" \
+      "an unbounded agent is S8's finding, not this one — this check sizes a bound that exists"
+    return
+  fi
+  # `timeout "$AGENT_TIMEOUT"` is the commonest spelling of all three, so a check that only read
+  # literals would answer UNKNOWN on most real chains. The value is resolved through the same
+  # machinery as every other setting in this tool, and an unresolvable one stays UNKNOWN: a
+  # number this tool invented is worse than no number.
+  secs=$(duration_seconds "$w") || secs=""
+  if [ -z "$secs" ] && [ -n "$w" ]; then
+    local name raw val
+    name=$(printf '%s' "$w" | tr -d '"${}')
+    raw=$(raw_assign "$name") || raw=""
+    if [ -n "$raw" ]; then
+      val=$(expand_value "$raw" 0) || val=""
+      case "$val" in *"$UNRESOLVED_MARK"*|*"$PROVISIONAL_MARK"*) val="" ;; esac
+      [ -n "$val" ] && secs=$(duration_seconds "$val")
+    fi
+    if [ -z "$secs" ]; then
+      finding UNKNOWN S17 static "the bound is a value this tool could not resolve" \
+        "$(ev "$src")" \
+        "read as « $w » — if that is hours rather than minutes, a mute start costs all of it"
+      return
+    fi
+  fi
+  if [ "$secs" -le "$MUTE_MAX_S" ]; then
+    finding GUARDED S17 static "the only bound is short enough to double as a detector" \
+      "$(ev "$src")" \
+      "${secs}s, at or under the ${MUTE_MAX_S}s this check treats as noticing — a mute start costs one probe, not the night"
+    return
+  fi
+  finding EXPOSED S17 static "a mute start is only ended by the whole session budget" \
+    "$(ev "$src")" \
+    "${secs}s is the only clock on the agent, and it is above the ${MUTE_MAX_S}s this check treats as noticing" \
+    "no life-sign control: an agent that blocks at startup writes nothing and is killed ${secs}s later, with the same trace as an ordinary overrun" \
+    "eight public reports of exactly this (anthropics/claude-code #74617 #75613 #78903 #79610 #86074 #89537 #91987 #56540); if your agent legitimately goes quiet longer than that, this is a false alarm and the number above is the one to judge it by"
+}
+
 # =========================================================================================
 # The questions no inspection can answer. They are not a sales pitch for anything: they are
 # the holes an instrument does not fill, and the report says so.
@@ -3108,6 +3246,7 @@ check_S13_armed_default
 check_S14_wakeup_display
 check_S15_exit_code_read
 check_S16_spacing_marker
+check_S17_mute_start
 
 printf '\nFINDINGS\n'
 [ -n "$OUT_EXPOSED" ] && printf '%s' "$OUT_EXPOSED"
