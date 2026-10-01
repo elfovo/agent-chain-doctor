@@ -84,3 +84,4 @@ you look" to one check interval.
 - [`claude -p` hangs at startup under launchd or cron](./)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

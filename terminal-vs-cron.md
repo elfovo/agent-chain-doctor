@@ -64,3 +64,4 @@ MIT licence. Issues welcome on the repository.
 - [`claude -p` hangs at startup under launchd or cron](./)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

@@ -74,3 +74,4 @@ Found a case it gets wrong? [Open an issue](https://github.com/elfovo/agent-chai
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

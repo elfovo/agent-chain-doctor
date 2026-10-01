@@ -79,3 +79,4 @@ missing end is an alarm (default 3600), `-w` how far back to look for unfinished
 - [`claude -p` hangs at startup under launchd or cron](./)
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
