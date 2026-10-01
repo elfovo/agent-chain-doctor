@@ -1,0 +1,71 @@
+#!/bin/bash
+# missed-run-check — know when a scheduled agent did NOT run.
+#
+# You cannot fix a scheduler you do not own (Claude Code Routines, Desktop scheduled tasks,
+# cron on a laptop that slept). You can notice that it skipped. The routine writes one line
+# when it starts and one when it ends; a second, independent clock (a GitHub Actions cron, a
+# cron on another machine) runs this check and fails loudly when the beats stop.
+#
+#   record:  missed-run-check --record start|end RUN_ID [STATUS] [-f FILE]
+#   check:   missed-run-check -e EVERY_SECONDS [-g GRACE] [-m MAX_RUN] [-w WINDOW] [-f FILE]
+#
+# Exit: 0 healthy, 1 alarm (MISSED / NO END / FAILED), 2 no usable heartbeat or bad usage.
+# File: tab-separated  START <id> <ISO-UTC>  /  END <id> <ISO-UTC> <status>. Read-only on check.
+set -u
+FILE=.heartbeat/beats.tsv EVERY= GRACE=900 MAXRUN=3600 WINDOW=172800 NOW= MODE=check
+REC_KIND= REC_ID= REC_STATUS=ok
+usage() { sed -n '9,10p' "$0" | sed 's/^# *//' >&2; exit 2; }
+while [ $# -gt 0 ]; do
+  case $1 in
+    --record) MODE=record; REC_KIND=${2:-}; REC_ID=${3:-}; shift 3 || usage
+              case ${1:-} in -*|'') ;; *) REC_STATUS=$1; shift ;; esac; continue ;;
+    -f) FILE=$2; shift 2 ;;  -e) EVERY=$2; shift 2 ;;  -g) GRACE=$2; shift 2 ;;
+    -m) MAXRUN=$2; shift 2 ;; -w) WINDOW=$2; shift 2 ;; --now) NOW=$2; shift 2 ;;
+    *) usage ;;
+  esac
+done
+iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+to_epoch() { date -u -d "$1" +%s 2>/dev/null || date -u -j -f %Y-%m-%dT%H:%M:%SZ "$1" +%s 2>/dev/null; }
+
+if [ "$MODE" = record ]; then
+  [ -n "$REC_ID" ] || usage
+  mkdir -p "$(dirname "$FILE")" || exit 2
+  case $REC_KIND in
+    start) printf 'START\t%s\t%s\n' "$REC_ID" "$(iso_now)" >> "$FILE" ;;
+    end)   printf 'END\t%s\t%s\t%s\n' "$REC_ID" "$(iso_now)" "$REC_STATUS" >> "$FILE" ;;
+    *) usage ;;
+  esac
+  exit $?
+fi
+
+[ -n "$EVERY" ] || usage
+[ -n "$NOW" ] || NOW=$(date -u +%s)
+[ -s "$FILE" ] || { echo "NO HEARTBEAT: $FILE is missing or empty — nothing proves the routine ever ran" >&2; exit 2; }
+
+alarm=0 last_start= last_start_ts=
+starts=$(awk -F'\t' '$1=="START"{print $2"\t"$3}' "$FILE")
+[ -n "$starts" ] || { echo "NO HEARTBEAT: no START line in $FILE" >&2; exit 2; }
+while IFS=$'\t' read -r id ts; do
+  e=$(to_epoch "$ts") || { echo "unreadable timestamp '$ts' for run $id" >&2; exit 2; }
+  if [ -z "$last_start" ] || [ "$e" -ge "$last_start" ]; then last_start=$e; last_start_ts=$ts; fi
+  age=$((NOW - e))
+  [ "$age" -le "$WINDOW" ] || continue
+  endline=$(awk -F'\t' -v id="$id" '$1=="END" && $2==id' "$FILE" | tail -1)
+  if [ -z "$endline" ]; then
+    if [ "$age" -gt "$MAXRUN" ]; then
+      echo "NO END: run $id started $ts ($((age/60)) min ago) and never recorded an end — it died or hung"
+      alarm=1
+    fi
+  else
+    st=$(printf '%s' "$endline" | cut -f4)
+    [ "${st:-ok}" = ok ] || { echo "FAILED: run $id started $ts ended with status '$st'"; alarm=1; }
+  fi
+done <<< "$starts"
+
+since=$((NOW - last_start))
+if [ "$since" -gt $((EVERY + GRACE)) ]; then
+  echo "MISSED: last start $last_start_ts, $((since/60)) min ago; expected one every $((EVERY/60)) min (+$((GRACE/60)) grace)"
+  alarm=1
+fi
+[ "$alarm" = 0 ] && echo "OK: last start $last_start_ts, $((since/60)) min ago"
+exit "$alarm"

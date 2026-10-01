@@ -25,6 +25,8 @@ chmod +x agent-chain-doctor
 **Agent hangs at startup with no output?** See [the startup watchdog](https://elfovo.github.io/agent-chain-doctor/) ([source](docs/index.md)) — `extras/startup-watchdog`
 kills a run that has printed nothing after N seconds, instead of waiting for a multi-hour timeout.
 
+**Scheduled routine or task silently skipped a run?** See [missed-run-check](https://elfovo.github.io/agent-chain-doctor/missed-runs) ([source](docs/missed-runs.md)) — a heartbeat check that alerts when the beats stop.
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
