@@ -153,5 +153,5 @@ Exit 1 fails the Actions job, and GitHub emails you about failed scheduled workf
   Related: [routine stuck on a permission prompt](./permission-prompt) — a frozen prompt is one
   way a run ends up "successful" with no work.
 - Same repository: [`agent-chain-doctor`](https://github.com/elfovo/agent-chain-doctor), a
-  read-only check of 29 ways a self-hosted agent chain stops silently.
+  read-only check of 30 ways a self-hosted agent chain stops silently.
 - Seen a "Completed" this does not catch? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
