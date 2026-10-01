@@ -1,0 +1,4 @@
+title: agent-chain-doctor
+theme: jekyll-theme-minimal
+plugins:
+  - jekyll-sitemap
