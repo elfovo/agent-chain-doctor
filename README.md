@@ -29,6 +29,8 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **Works in your terminal, fails under cron or launchd?** See [what differs and how to check it](https://elfovo.github.io/agent-chain-doctor/terminal-vs-cron) ([source](docs/terminal-vs-cron.md)).
 
+**Routine stuck on a permission prompt nobody can answer?** See [how to avoid it and catch it the same hour](https://elfovo.github.io/agent-chain-doctor/permission-prompt) ([source](docs/permission-prompt.md)).
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
