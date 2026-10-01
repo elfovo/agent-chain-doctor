@@ -27,6 +27,8 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **Scheduled routine or task silently skipped a run?** See [missed-run-check](https://elfovo.github.io/agent-chain-doctor/missed-runs) ([source](docs/missed-runs.md)) — a heartbeat check that alerts when the beats stop.
 
+**Works in your terminal, fails under cron or launchd?** See [what differs and how to check it](https://elfovo.github.io/agent-chain-doctor/terminal-vs-cron) ([source](docs/terminal-vs-cron.md)).
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
