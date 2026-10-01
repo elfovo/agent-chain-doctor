@@ -31,6 +31,8 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **Routine stuck on a permission prompt nobody can answer?** See [how to avoid it and catch it the same hour](https://elfovo.github.io/agent-chain-doctor/permission-prompt) ([source](docs/permission-prompt.md)).
 
+**Routine says Completed but did nothing?** See [how to make the run prove its work](https://elfovo.github.io/agent-chain-doctor/silent-completed) ([source](docs/silent-completed.md)).
+
 **`CronCreate`, `ScheduleWakeup` or `/loop` job never fires?** See [why in-session schedules are fragile and what to use instead](https://elfovo.github.io/agent-chain-doctor/in-session-schedule) ([source](docs/in-session-schedule.md)).
 
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
