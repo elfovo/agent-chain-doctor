@@ -70,7 +70,7 @@ missing end is an alarm (default 3600), `-w` how far back to look for unfinished
 - Script: [`extras/missed-run-check`](https://github.com/elfovo/agent-chain-doctor/blob/main/extras/missed-run-check)
   — tests: `extras/test-missed-run-check.sh` (11 cases, shown failing on a stub before passing).
 - Same repository: [`agent-chain-doctor`](https://github.com/elfovo/agent-chain-doctor), a
-  read-only check of 29 ways a *self-hosted* agent chain stops silently, and
+  read-only check of 30 ways a *self-hosted* agent chain stops silently, and
   [a watchdog for `claude -p` hanging at startup](./).
 - Found a failure mode this misses? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
 

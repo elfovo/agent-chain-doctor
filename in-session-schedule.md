@@ -89,7 +89,7 @@ the hour".
 - Script: [`extras/missed-run-check`](https://github.com/elfovo/agent-chain-doctor/blob/main/extras/missed-run-check)
   (about 70 lines of bash, with tests). Read it before running it.
 - Same repository: [`agent-chain-doctor`](https://github.com/elfovo/agent-chain-doctor), a
-  read-only check of 29 ways a self-hosted agent chain stops silently.
+  read-only check of 30 ways a self-hosted agent chain stops silently.
 - Seen a case this page does not cover? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
 
 ## Other guides for unattended Claude Code agents
