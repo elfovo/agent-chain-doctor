@@ -22,7 +22,7 @@ chmod +x agent-chain-doctor
 ./agent-chain-doctor
 ```
 
-**Agent hangs at startup with no output?** See [the startup watchdog](docs/index.md) — `extras/startup-watchdog`
+**Agent hangs at startup with no output?** See [the startup watchdog](https://elfovo.github.io/agent-chain-doctor/) ([source](docs/index.md)) — `extras/startup-watchdog`
 kills a run that has printed nothing after N seconds, instead of waiting for a multi-hour timeout.
 
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
