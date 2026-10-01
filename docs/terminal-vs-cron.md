@@ -58,3 +58,10 @@ Related:
 [detect a scheduled run that silently didn't happen](missed-runs).
 
 MIT licence. Issues welcome on the repository.
+
+## Other guides for unattended Claude Code agents
+
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
+- [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

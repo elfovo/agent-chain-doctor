@@ -73,3 +73,10 @@ missing end is an alarm (default 3600), `-w` how far back to look for unfinished
   read-only check of 29 ways a *self-hosted* agent chain stops silently, and
   [a watchdog for `claude -p` hanging at startup](./).
 - Found a failure mode this misses? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
+
+## Other guides for unattended Claude Code agents
+
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
+- [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

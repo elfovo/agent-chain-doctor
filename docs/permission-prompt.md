@@ -78,3 +78,10 @@ you look" to one check interval.
   read-only check of 29 ways a self-hosted agent chain stops silently;
   [`claude -p` hanging at startup](./); [works in the terminal, fails under cron](./terminal-vs-cron).
 - Seen a prompt this page does not mention? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
+
+## Other guides for unattended Claude Code agents
+
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
+- [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
