@@ -1,6 +1,6 @@
 ---
 title: "Claude Code works in your terminal but fails under cron or launchd — what differs"
-description: "Headless claude -p runs fine by hand and dies, hangs or does nothing when a scheduler starts it. The differences between your shell and the scheduler's environment, and a read-only script that checks 29 of them."
+description: "Headless claude -p runs fine by hand and dies, hangs or does nothing when a scheduler starts it. The differences between your shell and the scheduler's environment, and a read-only script that checks 30 of them."
 ---
 
 # Works in the terminal, fails under cron or launchd
@@ -41,10 +41,10 @@ env -i HOME="$HOME" /bin/bash -c '/full/path/to/claude -p "say ok" ; echo "exit 
 If that fails where your terminal succeeds, the job needs a `PATH` set explicitly and must run in
 your GUI login domain (a LaunchAgent, not a system daemon or a bare crontab).
 
-## Check all 29 in one command
+## Check all 30 in one command
 
 [`agent-chain-doctor`](https://github.com/elfovo/agent-chain-doctor) is one bash file, no
-dependencies, read-only. It finds your launchd / cron / systemd entry and prints, for each of 29
+dependencies, read-only. It finds your launchd / cron / systemd entry and prints, for each of 30
 known silent-stop causes, **exposed**, **guarded** or **undecidable**, with the evidence:
 
 ```
