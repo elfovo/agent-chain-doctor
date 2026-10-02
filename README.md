@@ -27,6 +27,8 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **Scheduled routine or task silently skipped a run?** See [missed-run-check](https://elfovo.github.io/agent-chain-doctor/missed-runs) ([source](docs/missed-runs.md)) — a heartbeat check that alerts when the beats stop.
 
+**Scheduled task shows a new `lastRunAt` but no session started?** See [why the scheduler can't see it and what can](https://elfovo.github.io/agent-chain-doctor/lastrunat-no-session) ([source](docs/lastrunat-no-session.md)).
+
 **Works in your terminal, fails under cron or launchd?** See [what differs and how to check it](https://elfovo.github.io/agent-chain-doctor/terminal-vs-cron) ([source](docs/terminal-vs-cron.md)).
 
 **Routine stuck on a permission prompt nobody can answer?** See [how to avoid it and catch it the same hour](https://elfovo.github.io/agent-chain-doctor/permission-prompt) ([source](docs/permission-prompt.md)).
