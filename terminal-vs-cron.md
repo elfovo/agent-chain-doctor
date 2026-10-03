@@ -63,5 +63,9 @@ MIT licence. Issues welcome on the repository.
 
 - [`claude -p` hangs at startup under launchd or cron](./)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
+- [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
+- [Routine says Completed but did nothing — how to catch it](./silent-completed)
+- [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

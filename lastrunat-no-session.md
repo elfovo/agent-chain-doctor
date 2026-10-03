@@ -57,3 +57,14 @@ It does not make the task run, and it cannot tell you *why* a launch failed — 
 stopped, within one interval plus the grace period. A beat proves a session started and reached
 its first step, not that its work was good; for that, see
 [Routine says Completed but did nothing](silent-completed).
+
+## Other guides for unattended Claude Code agents
+
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
+- [Routine says Completed but did nothing — how to catch it](./silent-completed)
+- [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
+- [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
+- [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

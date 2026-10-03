@@ -73,6 +73,9 @@ Found a case it gets wrong? [Open an issue](https://github.com/elfovo/agent-chai
 
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
+- [Routine says Completed but did nothing — how to catch it](./silent-completed)
+- [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)

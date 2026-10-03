@@ -155,3 +155,14 @@ Exit 1 fails the Actions job, and GitHub emails you about failed scheduled workf
 - Same repository: [`agent-chain-doctor`](https://github.com/elfovo/agent-chain-doctor), a
   read-only check of 30 ways a self-hosted agent chain stops silently.
 - Seen a "Completed" this does not catch? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
+
+## Other guides for unattended Claude Code agents
+
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
+- [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
+- [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
+- [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
+- [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
