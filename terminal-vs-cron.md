@@ -69,4 +69,5 @@ MIT licence. Issues welcome on the repository.
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
 - [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
-- [Scheduled `claude -p` job keeps failing with "Not logged in" or "Login expired"](./auth-expired)
+- [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
+- [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
