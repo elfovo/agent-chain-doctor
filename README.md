@@ -37,6 +37,14 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **`CronCreate`, `ScheduleWakeup` or `/loop` job never fires?** See [why in-session schedules are fragile and what to use instead](https://elfovo.github.io/agent-chain-doctor/in-session-schedule) ([source](docs/in-session-schedule.md)).
 
+**Scheduled `claude -p` fails with "Not logged in" or "OAuth session expired"?** See [how to give the job its own token and make auth failures loud](https://elfovo.github.io/agent-chain-doctor/auth-expired).
+
+**Auto mode blocks your scheduled or headless run?** See [what to configure and how to see every denial](https://elfovo.github.io/agent-chain-doctor/auto-mode-blocks).
+
+**Scheduled task asks a question instead of doing the work?** See [how to write the prompt so it can't, and catch the run that does](https://elfovo.github.io/agent-chain-doctor/asks-instead-of-working).
+
+**Scheduled task or routine hangs forever, no prompt, no error?** See [what bounds the damage and how to know within the hour](https://elfovo.github.io/agent-chain-doctor/run-hangs).
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
