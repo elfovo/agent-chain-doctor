@@ -99,3 +99,4 @@ settings above.
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
+- [Scheduled `claude -p` job keeps failing with "Not logged in" or "Login expired"](./auth-expired)

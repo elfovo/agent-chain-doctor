@@ -84,3 +84,4 @@ missing end is an alarm (default 3600), `-w` how far back to look for unfinished
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
 - [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
+- [Scheduled `claude -p` job keeps failing with "Not logged in" or "Login expired"](./auth-expired)
