@@ -102,3 +102,4 @@ heartbeats stop: see [your scheduled agent silently didn't run](./missed-runs).
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)

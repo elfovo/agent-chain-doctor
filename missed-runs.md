@@ -88,3 +88,4 @@ missing end is an alarm (default 3600), `-w` how far back to look for unfinished
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
