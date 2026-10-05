@@ -103,3 +103,4 @@ heartbeats stop: see [your scheduled agent silently didn't run](./missed-runs).
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
+- [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)

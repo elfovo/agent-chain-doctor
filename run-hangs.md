@@ -95,3 +95,4 @@ max run time (`-m`) plus one check interval.
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
+- [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
