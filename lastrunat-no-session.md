@@ -70,3 +70,4 @@ its first step, not that its work was good; for that, see
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
+- [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)

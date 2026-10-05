@@ -157,3 +157,4 @@ into an alarm instead of a silent gap.
 - [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
+- [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)

@@ -168,3 +168,4 @@ Exit 1 fails the Actions job, and GitHub emails you about failed scheduled workf
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
+- [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
