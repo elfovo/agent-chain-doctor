@@ -45,6 +45,14 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **Scheduled task or routine hangs forever, no prompt, no error?** See [what bounds the damage and how to know within the hour](https://elfovo.github.io/agent-chain-doctor/run-hangs).
 
+**Scheduled task burns tokens on runs with nothing to do?** See [how to gate it with a cheap check first](https://elfovo.github.io/agent-chain-doctor/skip-idle-runs).
+
+**Scheduled `claude -p` hits the usage limit overnight?** See [how to detect it and resume after the reset](https://elfovo.github.io/agent-chain-doctor/usage-limit).
+
+**Scheduled run can't see its MCP tools (Slack, Jira, your own server)?** See [the four causes and a pre-flight check](https://elfovo.github.io/agent-chain-doctor/mcp-tools-missing).
+
+**`--dangerously-skip-permissions cannot be used with root/sudo privileges` under cron, Docker or CI?** See [how to run it as a non-root user](https://elfovo.github.io/agent-chain-doctor/root-skip-permissions).
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
