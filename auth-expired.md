@@ -158,3 +158,4 @@ into an alarm instead of a silent gap.
 - [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
+- [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)

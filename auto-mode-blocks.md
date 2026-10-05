@@ -145,3 +145,4 @@ If your run is waiting on a prompt rather than being denied, read
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
+- [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
