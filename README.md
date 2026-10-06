@@ -774,6 +774,13 @@ compares the target tree before and after a run.
 The author also publishes a paid set of governance templates for unattended agents. This tool
 contains no part of it, works standalone, and is not held back to sell it.
 
+A second paid pack, the *Unattended Claude Code Field Kit* (planned price: $12), is built but not
+on sale yet: a launcher with heartbeat, hard timeout and lock; cron, systemd, launchd and GitHub
+Actions clocks ready to copy; per-scheduler permission examples; a runbook of the five silent
+failures behind the FAQ issues #1–#5; and the 48 checks that test it. **To be told the day it can
+be bought, subscribe to [issue #6](https://github.com/elfovo/agent-chain-doctor/issues/6)**: it
+gets one notification on that day, and nothing else.
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE). Authorship note in [`NOTICE`](NOTICE).
