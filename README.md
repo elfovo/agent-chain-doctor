@@ -81,6 +81,21 @@ Every one of those leaves a trace on disk. This tool goes and looks.
 
 ---
 
+## Use it from an AI assistant (MCP server)
+
+`mcp/server.py` exposes the same diagnosis as an [MCP](https://modelcontextprotocol.io) tool,
+`diagnose_scheduled_agent` — Python 3 standard library only, stdio, read-only. Ask your assistant
+"why did my scheduled agent skip last night?" and it can run the 30 checks itself.
+
+```sh
+git clone https://github.com/elfovo/agent-chain-doctor
+claude mcp add agent-chain-doctor -- python3 "$PWD/agent-chain-doctor/mcp/server.py"
+```
+
+Any MCP client works the same way (command `python3`, argument the path to `mcp/server.py`). Run it
+on the machine whose chain you want diagnosed: the `Dockerfile` exists for registries, and inside a
+container the tool can only see the container. Test: `mcp/test_server.sh`.
+
 ## Usage
 
 ```
