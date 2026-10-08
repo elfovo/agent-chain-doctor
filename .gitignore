@@ -5,3 +5,4 @@ tests/prove-red.tsv
 tests/prove-red-partial.tsv
 tests/prove-red-fine.tsv
 tests/prove-red-fine-partial.tsv
+dist/

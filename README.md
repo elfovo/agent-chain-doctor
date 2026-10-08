@@ -92,6 +92,10 @@ git clone https://github.com/elfovo/agent-chain-doctor
 claude mcp add agent-chain-doctor -- python3 "$PWD/agent-chain-doctor/mcp/server.py"
 ```
 
+**Claude Desktop, one click:** download `agent-chain-doctor-mcp.mcpb` from the
+[latest `-mcp` release](https://github.com/elfovo/agent-chain-doctor/releases) and open it.
+Build it yourself with `python3 mcp/build_mcpb.py` (reproducible; test: `mcp/test_mcpb.sh`).
+
 Any MCP client works the same way (command `python3`, argument the path to `mcp/server.py`). Run it
 on the machine whose chain you want diagnosed: the `Dockerfile` exists for registries, and inside a
 container the tool can only see the container. Test: `mcp/test_server.sh`.
