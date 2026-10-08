@@ -27,6 +27,8 @@ chmod +x agent-chain-doctor
 ./agent-chain-doctor
 ```
 
+**Scheduled job never started — no error, no run entry?** See [where launchd, cron and systemd leave the why](https://elfovo.github.io/agent-chain-doctor/never-started).
+
 **Agent hangs at startup with no output?** See [the startup watchdog](https://elfovo.github.io/agent-chain-doctor/) ([source](docs/index.md)) — `extras/startup-watchdog`
 kills a run that has printed nothing after N seconds, instead of waiting for a multi-hour timeout.
 
