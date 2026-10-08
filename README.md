@@ -16,6 +16,11 @@ agent chain (launchd / cron / systemd + the session script they run) and returns
 30 checks, **exposed**, **guarded** or **undecidable**, with the evidence that establishes the
 verdict.
 
+**Already using healthchecks.io, Cronitor or another heartbeat monitor?** Keep it — it answers
+*whether* the run happened. It cannot answer *why* when the scheduler never started the job:
+no run means no output to capture, and you get "no error, no failed run, nothing in the job
+history". This answers that half, from the machine itself.
+
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/elfovo/agent-chain-doctor/main/agent-chain-doctor
 chmod +x agent-chain-doctor
