@@ -71,6 +71,8 @@ Found a case it gets wrong? [Open an issue](https://github.com/elfovo/agent-chai
 
 ## Other guides for unattended Claude Code agents
 
+- [Cowork scheduled task "Failed to run scheduled task" or "Skipped" — the Project binding](./project-bound-task-skipped)
+- [Scheduled job never started — no error, no failed run, nothing in the job history](./never-started)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
 - [Routine says Completed but did nothing — how to catch it](./silent-completed)
