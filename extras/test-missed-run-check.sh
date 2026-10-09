@@ -61,5 +61,37 @@ expect "old orphan outside window -> exit 0" 0 "" "$CK" -f "$F" -e 3600 --now $T
 n=$(grep -c . "$F" 2>/dev/null); [ "${n:-0}" = 2 ] && ok "--record writes START and END" || bad "--record writes START and END" "lines=${n:-0}"
 expect "recorded fresh run -> exit 0" 0 "OK" "$CK" -f "$F" -e 3600
 
+# 10. Installed today, first fire not due yet: no beats is expected, not an alarm (-d).
+: > "$F"
+expect "first run not due yet -> exit 0, WAITING" 0 "WAITING" "$CK" -f "$F" -e 3600 -d "$(iso $((T0+1800)))" --now $T0
+expect "first run not due, missing file -> exit 0" 0 "WAITING" "$CK" -f "$WORK/nope.tsv" -e 3600 -d "$(iso $((T0+1800)))" --now $T0
+
+# 11. The first fire was due 2 h ago and never started: that is a miss, not "no heartbeat".
+expect "first run overdue -> exit 1, MISSED" 1 "MISSED: first run" "$CK" -f "$WORK/nope.tsv" -e 3600 -d "$(iso $((T0-7200)))" --now $T0
+
+# 12. Overdue by less than the grace is still waiting.
+expect "first run late within grace -> exit 0" 0 "WAITING" "$CK" -f "$F" -e 3600 -g 900 -d "$(iso $((T0-600)))" --now $T0
+
+# 13. Once beats exist, -d changes nothing: a stale schedule is still MISSED.
+printf 'START\tr1\t%s\nEND\tr1\t%s\tok\n' "$(iso $((T0-10800)))" "$(iso $((T0-10500)))" > "$F"
+expect "-d with beats -> normal MISSED" 1 "MISSED: last start" "$CK" -f "$F" -e 3600 -d "$(iso $((T0+1800)))" --now $T0
+
+# 14. An unreadable due date is a usage error, not a silent pass.
+: > "$F"
+expect "unreadable -d -> exit 2" 2 "" "$CK" -f "$F" -e 3600 -d "tomorrow-ish" --now $T0
+expect "-d with trailing junk -> exit 2" 2 "" "$CK" -f "$F" -e 3600 -d "$(iso $((T0+1800)))junk" --now $T0
+expect "-d date only -> exit 2 (same on GNU and BSD)" 2 "" "$CK" -f "$F" -e 3600 -d 2026-09-21 --now $T0
+
+# 15. An option without its value is a usage error (2), never an alarm (1).
+expect "-d with no value -> exit 2" 2 "" "$CK" -f "$F" -e 3600 -d
+expect "-e with no value -> exit 2" 2 "" "$CK" -f "$F" -e
+
+# 16. A beats file that exists but cannot be read is not "no run yet".
+if [ "$(id -u)" != 0 ]; then
+  printf 'START\tr1\t%s\n' "$(iso $((T0-600)))" > "$WORK/locked.tsv"; chmod 000 "$WORK/locked.tsv"
+  expect "unreadable beats file with -d -> exit 2" 2 "" "$CK" -f "$WORK/locked.tsv" -e 3600 -d "$(iso $((T0+1800)))" --now $T0
+  chmod 600 "$WORK/locked.tsv"
+fi
+
 echo "$PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

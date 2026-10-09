@@ -7,20 +7,24 @@
 # cron on another machine) runs this check and fails loudly when the beats stop.
 #
 #   record:  missed-run-check --record start|end RUN_ID [STATUS] [-f FILE]
-#   check:   missed-run-check -e EVERY_SECONDS [-g GRACE] [-m MAX_RUN] [-w WINDOW] [-f FILE]
+#   check:   missed-run-check -e EVERY_SECONDS [-g GRACE] [-m MAX_RUN] [-w WINDOW] [-d FIRST_DUE] [-f FILE]
 #
 # Exit: 0 healthy, 1 alarm (MISSED / NO END / FAILED), 2 no usable heartbeat or bad usage.
+# -d FIRST_DUE (ISO UTC): when the first run is due. Before it (+ grace) no beats is WAITING, exit 0;
+# after it, no beats is MISSED, exit 1 — instead of NO HEARTBEAT, which cannot tell the two apart.
 # File: tab-separated  START <id> <ISO-UTC>  /  END <id> <ISO-UTC> <status>. Read-only on check.
 set -u
-FILE=.heartbeat/beats.tsv EVERY= GRACE=900 MAXRUN=3600 WINDOW=172800 NOW= MODE=check
+FILE=.heartbeat/beats.tsv EVERY= GRACE=900 MAXRUN=3600 WINDOW=172800 NOW= MODE=check DUE=
 REC_KIND= REC_ID= REC_STATUS=ok
 usage() { sed -n '9,10p' "$0" | sed 's/^# *//' >&2; exit 2; }
 while [ $# -gt 0 ]; do
+  case $1 in -f|-e|-g|-m|-w|-d|--now) [ $# -ge 2 ] || usage ;; esac
   case $1 in
     --record) MODE=record; REC_KIND=${2:-}; REC_ID=${3:-}; shift 3 || usage
               case ${1:-} in -*|'') ;; *) REC_STATUS=$1; shift ;; esac; continue ;;
     -f) FILE=$2; shift 2 ;;  -e) EVERY=$2; shift 2 ;;  -g) GRACE=$2; shift 2 ;;
     -m) MAXRUN=$2; shift 2 ;; -w) WINDOW=$2; shift 2 ;; --now) NOW=$2; shift 2 ;;
+    -d) DUE=$2; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -40,11 +44,28 @@ fi
 
 [ -n "$EVERY" ] || usage
 [ -n "$NOW" ] || NOW=$(date -u +%s)
-[ -s "$FILE" ] || { echo "NO HEARTBEAT: $FILE is missing or empty — nothing proves the routine ever ran" >&2; exit 2; }
+if [ -n "$DUE" ]; then
+  # one format on both dates: GNU would take "2026-10-10", BSD ignores trailing junk
+  case $DUE in [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z) due_e=$(to_epoch "$DUE") ;; *) false ;; esac ||
+    { echo "unreadable first-due date '$DUE' (want YYYY-MM-DDTHH:MM:SSZ)" >&2; exit 2; }
+fi
+starts=
+if [ -s "$FILE" ]; then
+  starts=$(awk -F'\t' '$1=="START"{print $2"\t"$3}' "$FILE") || { echo "cannot read $FILE" >&2; exit 2; }
+fi
+if [ -z "$starts" ]; then
+  if [ -n "$DUE" ]; then
+    late=$((NOW - due_e))
+    if [ "$late" -gt "$GRACE" ]; then
+      echo "MISSED: first run was due $DUE, $((late/60)) min ago, and none ever started"; exit 1
+    fi
+    echo "WAITING: no run yet; first one due $DUE"; exit 0
+  fi
+  [ -s "$FILE" ] || { echo "NO HEARTBEAT: $FILE is missing or empty — nothing proves the routine ever ran" >&2; exit 2; }
+  echo "NO HEARTBEAT: no START line in $FILE" >&2; exit 2
+fi
 
 alarm=0 last_start= last_start_ts=
-starts=$(awk -F'\t' '$1=="START"{print $2"\t"$3}' "$FILE")
-[ -n "$starts" ] || { echo "NO HEARTBEAT: no START line in $FILE" >&2; exit 2; }
 while IFS=$'\t' read -r id ts; do
   e=$(to_epoch "$ts") || { echo "unreadable timestamp '$ts' for run $id" >&2; exit 2; }
   if [ -z "$last_start" ] || [ "$e" -ge "$last_start" ]; then last_start=$e; last_start_ts=$ts; fi
