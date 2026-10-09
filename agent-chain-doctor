@@ -758,67 +758,176 @@ find_scheduler_for_launcher() {
 # available to it.
 ASSIGN_CACHE=""
 
+# Third lesson: an assignment is not always the first word of its line. To bash, the command
+# after `;` or `{` is a command like any other, so `cd "$X" || exit 1; LOG=…`, `setup() { LOCK=…; }`
+# and `if …; then NEXT=…; fi` all assign — and reading only the first word left those control
+# paths invisible, the whole chain refused as "not an agent chain" when all of them were written
+# that way. The line is cut at those two boundaries, and only where bash would cut it at top
+# level. The first cut assumed a line stands alone and only `$(` and `${` open a context, and a
+# cold review made it collect five assignments bash never makes: a `;` on the second line of a
+# quoted prompt or in a here-document, inside `( … )` or backticks, after a `)` that sat inside
+# quotes, or behind `;#`. So the contexts are a stack, carried from one line to the next, and a
+# line that STARTS inside one (or inside a here-document body) is not cut at all — it is read
+# the way it always was, first word only. `&&`, `||`, `case` arms and `local` inside a one-line
+# function are NOT handled — known limits, written here rather than half handled.
+SC_STACK=""; SC_SQ=0; SC_BT=0; SC_HEREDOC=""; SC_HEREDOC_TABS=0
+split_commands() {  # $1 line → SEGMENTS, one command per line; state carried in SC_*
+  local line="$1" n i c next top cut=1 esc=0 cur="" prev=" " word t
+  SEGMENTS=""
+  if [ -n "$SC_HEREDOC" ]; then
+    t="$line"
+    [ "$SC_HEREDOC_TABS" -eq 1 ] && t="${t#"${t%%[!	]*}"}"
+    [ "$t" = "$SC_HEREDOC" ] && SC_HEREDOC=""
+    SEGMENTS="$line"; return 0
+  fi
+  [ -n "$SC_STACK" ] || [ "$SC_SQ" -ne 0 ] || [ "$SC_BT" -ne 0 ] && cut=0
+  case "$line" in *[\;\{\(\)\"\'\`\<\\]*) ;; *) SEGMENTS="$line"; return 0 ;; esac
+  n=${#line}; i=0
+  while [ "$i" -lt "$n" ]; do
+    c="${line:i:1}"; i=$((i + 1))
+    if [ "$esc" -eq 1 ]; then esc=0; cur="$cur$c"; prev="$c"; continue; fi
+    if [ "$SC_SQ" -ne 0 ]; then
+      # 1 = '…' (no escapes at all), 2 = $'…' (backslash escapes).
+      if [ "$SC_SQ" -eq 2 ] && [ "$c" = '\' ]; then esc=1
+      elif [ "$c" = "'" ]; then SC_SQ=0; fi
+      cur="$cur$c"; prev="$c"; continue
+    fi
+    top="${SC_STACK#"${SC_STACK%?}"}"
+    if [ "$c" = '\' ]; then esc=1; cur="$cur$c"; prev="$c"; continue; fi
+    if [ "$top" = '"' ]; then
+      case "$c" in
+        '"') SC_STACK="${SC_STACK%?}" ;;
+        '`') if [ "$SC_BT" -eq 1 ]; then SC_BT=0; else SC_BT=1; fi ;;
+        '$') next="${line:i:1}"
+             case "$next" in '('|'{') SC_STACK="$SC_STACK$next"; cur="$cur$c$next"; prev="$next"; i=$((i + 1)); continue ;; esac ;;
+      esac
+      cur="$cur$c"; prev="$c"; continue
+    fi
+    case "$c" in
+      "'") SC_SQ=1 ;;
+      '"') SC_STACK="$SC_STACK\"" ;;
+      '`') if [ "$SC_BT" -eq 1 ]; then SC_BT=0; else SC_BT=1; fi ;;
+      '$') next="${line:i:1}"
+           case "$next" in
+             '('|'{') SC_STACK="$SC_STACK$next"; cur="$cur$c$next"; prev="$next"; i=$((i + 1)); continue ;;
+             "'") SC_SQ=2; cur="$cur$c$next"; prev="$next"; i=$((i + 1)); continue ;;
+           esac ;;
+      '(') [ "$SC_BT" -eq 0 ] && SC_STACK="$SC_STACK(" ;;
+      ')') [ "$SC_BT" -eq 0 ] && [ "$top" = '(' ] && SC_STACK="${SC_STACK%?}" ;;
+      '}') [ "$SC_BT" -eq 0 ] && [ "$top" = '{' ] && SC_STACK="${SC_STACK%?}" ;;
+      '{') if [ "$SC_BT" -eq 0 ] && [ -z "$SC_STACK" ] && [ "$cut" -eq 1 ]; then
+             case "$prev" in
+               [[:space:]]|')'|';')
+                 case "${line:i:1}" in
+                   [[:space:]]|'') SEGMENTS="$SEGMENTS$cur
+"; cur=""; prev=" "; continue ;;
+                 esac ;;
+             esac
+           elif [ -n "$SC_STACK" ]; then SC_STACK="$SC_STACK{"
+           fi ;;
+      '#') if [ "$SC_BT" -eq 0 ]; then
+             case "$prev" in [[:space:]]|';') break ;; esac
+           fi ;;
+      '<') # A here-document: its body lines are text, read as before, never cut.
+           # Not inside $(( … )) or (( … )), where `<<` is a shift.
+           if [ "${line:i:1}" = '<' ] && [ "${line:i+1:1}" != '<' ] && [ "$SC_BT" -eq 0 ] \
+              && case "$SC_STACK" in *'((') false ;; *) true ;; esac; then
+             word="${line:i+1}"; SC_HEREDOC_TABS=0
+             case "$word" in -*) SC_HEREDOC_TABS=1; word="${word#-}" ;; esac
+             word="${word#"${word%%[![:space:]]*}"}"; word="${word%%[[:space:];|&)<>]*}"
+             word="${word//\'/}"; word="${word//\"/}"; word="${word//\\/}"
+             SC_HEREDOC="$word"
+             cur="$cur$c<"; prev='<'; i=$((i + 1)); continue
+           fi ;;
+      ';') if [ "$SC_BT" -eq 0 ] && [ -z "$SC_STACK" ] && [ "$cut" -eq 1 ]; then
+             SEGMENTS="$SEGMENTS$cur
+"; cur=""; prev=";"; continue
+           fi ;;
+    esac
+    cur="$cur$c"; prev="$c"
+  done
+  SEGMENTS="$SEGMENTS$cur"
+  # A line is never cut when it started inside a context: the first word only, as before.
+  [ "$cut" -eq 1 ] || SEGMENTS="$line"
+}
+
 load_assignments() {
   [ -n "$LAUNCHER" ] && [ -r "$LAUNCHER" ] || return 1
-  local line trimmed name rhs inner out=""
+  local line seg rest trimmed name rhs inner out=""
+  SC_STACK=""; SC_SQ=0; SC_BT=0; SC_HEREDOC=""; SC_HEREDOC_TABS=0
   while IFS= read -r line; do
-    trimmed="${line#"${line%%[![:space:]]*}"}"
-    case "$trimmed" in \#*|'') continue ;; esac
-    # Form 1 — the defaulting idiom:  : "${NAME:=value}"
-    case "$trimmed" in
-      ': "${'*'}"'*)
-        inner="${trimmed#: \"\$\{}"; inner="${inner%%\}\"*}"
-        case "$inner" in
-          *:=*) name="${inner%%:=*}"; rhs="${inner#*:=}" ;;
-          *=*)  name="${inner%%=*}";  rhs="${inner#*=}" ;;
-          *)    continue ;;
-        esac
-        case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
-        out="$out$name	$rhs
-"
-        continue ;;
-    esac
-    # Form 2 — a plain assignment at the start of a line, with or without a declaration
-    # keyword in front of it. `readonly LOG_FILE="…"` is ordinary bash, and it used to be
-    # dropped here: the name parsed as "readonly LOG_FILE", which contains a space, so the
-    # name test rejected it. A foreign chain that declared all four of its control paths that
-    # way was answered "looks like a script, but not like an agent chain" at exit 2 — zero of
-    # the twenty-six checks ran on it. Found in exp-008 by reading chains this tool did not
-    # write; none of the suite's own fixtures used the idiom, because its author does not.
-    case "$trimmed" in
-      readonly[[:space:]]*|local[[:space:]]*|export[[:space:]]*|declare[[:space:]]*|typeset[[:space:]]*)
-        case "$trimmed" in
-          readonly*) trimmed="${trimmed#readonly}" ;;
-          local*)    trimmed="${trimmed#local}" ;;
-          export*)   trimmed="${trimmed#export}" ;;
-          declare*)  trimmed="${trimmed#declare}" ;;
-          typeset*)  trimmed="${trimmed#typeset}" ;;
-        esac
-        trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
-        # `declare -r NAME=…`, `typeset -gx NAME=…`: the flags sit between the keyword and
-        # the name. The inner test on a remaining space is what stops this looping forever on
-        # a line that is nothing but a dash.
-        while :; do
-          case "$trimmed" in
-            -*) case "$trimmed" in
-                  *[[:space:]]*) trimmed="${trimmed#*[[:space:]]}"
-                                 trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}" ;;
-                  *) break ;;
-                esac ;;
-            *) break ;;
+    split_commands "$line"
+    rest="$SEGMENTS"
+    while :; do
+      seg="${rest%%
+*}"
+      if [ "$seg" = "$rest" ]; then rest=""; else rest="${rest#*
+}"; fi
+      trimmed="${seg#"${seg%%[![:space:]]*}"}"
+      # The keyword that opens a branch or a loop body is not part of the command after it.
+      case "$trimmed" in
+        then[[:space:]]*|do[[:space:]]*|else[[:space:]]*)
+          trimmed="${trimmed#*[[:space:]]}"
+          trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}" ;;
+      esac
+      case "$trimmed" in \#*|'') [ -n "$rest" ] && continue; break ;; esac
+      # Form 1 — the defaulting idiom:  : "${NAME:=value}"
+      case "$trimmed" in
+        ': "${'*'}"'*)
+          inner="${trimmed#: \"\$\{}"; inner="${inner%%\}\"*}"
+          case "$inner" in
+            *:=*) name="${inner%%:=*}"; rhs="${inner#*:=}" ;;
+            *=*)  name="${inner%%=*}";  rhs="${inner#*=}" ;;
+            *)    continue ;;
           esac
-        done ;;
-    esac
-    case "$trimmed" in *=*) ;; *) continue ;; esac
-    name="${trimmed%%=*}"
-    case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
-    rhs="${trimmed#*=}"
-    case "$rhs" in
-      '"'*) rhs="${rhs#\"}"; rhs="${rhs%\"*}" ;;
-      *)    rhs="${rhs%%[[:space:]]*}" ;;
-    esac
-    out="$out$name	$rhs
+          case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
+          out="$out$name	$rhs
 "
+          continue ;;
+      esac
+      # Form 2 — a plain assignment at the start of a line, with or without a declaration
+      # keyword in front of it. `readonly LOG_FILE="…"` is ordinary bash, and it used to be
+      # dropped here: the name parsed as "readonly LOG_FILE", which contains a space, so the
+      # name test rejected it. A foreign chain that declared all four of its control paths that
+      # way was answered "looks like a script, but not like an agent chain" at exit 2 — zero of
+      # the twenty-six checks ran on it. Found in exp-008 by reading chains this tool did not
+      # write; none of the suite's own fixtures used the idiom, because its author does not.
+      case "$trimmed" in
+        readonly[[:space:]]*|local[[:space:]]*|export[[:space:]]*|declare[[:space:]]*|typeset[[:space:]]*)
+          case "$trimmed" in
+            readonly*) trimmed="${trimmed#readonly}" ;;
+            local*)    trimmed="${trimmed#local}" ;;
+            export*)   trimmed="${trimmed#export}" ;;
+            declare*)  trimmed="${trimmed#declare}" ;;
+            typeset*)  trimmed="${trimmed#typeset}" ;;
+          esac
+          trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}"
+          # `declare -r NAME=…`, `typeset -gx NAME=…`: the flags sit between the keyword and
+          # the name. The inner test on a remaining space is what stops this looping forever on
+          # a line that is nothing but a dash.
+          while :; do
+            case "$trimmed" in
+              -*) case "$trimmed" in
+                    *[[:space:]]*) trimmed="${trimmed#*[[:space:]]}"
+                                   trimmed="${trimmed#"${trimmed%%[![:space:]]*}"}" ;;
+                    *) break ;;
+                  esac ;;
+              *) break ;;
+            esac
+          done ;;
+      esac
+      case "$trimmed" in *=*) ;; *) continue ;; esac
+      name="${trimmed%%=*}"
+      case "$name" in ''|*[!A-Za-z0-9_]*|[0-9]*) continue ;; esac
+      rhs="${trimmed#*=}"
+      case "$rhs" in
+        '"'*) rhs="${rhs#\"}"; rhs="${rhs%\"*}" ;;
+        *)    rhs="${rhs%%[[:space:]]*}" ;;
+      esac
+      out="$out$name	$rhs
+"
+      [ -n "$rest" ] || break
+    done
   done < "$LAUNCHER"
   ASSIGN_CACHE="$out"
 }

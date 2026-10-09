@@ -1612,6 +1612,46 @@ else
   ok "T257 L12 \${PATH:-x} on a set PATH is not x: no GUARDED"
 fi
 
+# An assignment is not always the first word of its line. After `;` or `{` it is still an
+# assignment to bash, and the collector only read the line's first word: `cd "$X" || exit; LOG=…`,
+# `setup() { GATE=…; }` and `if …; then DUE=…; fi` left their control paths invisible, and a
+# chain written that way was refused as "not an agent chain" — the same total blindness as F-A.
+make_chain semi
+mutate 's|^RUNLOG=|cd "$BOT_STATE" \|\| exit 1; RUNLOG=|' \
+       's|^\(GATE=.*\)$|{ \1; }|' \
+       's|^\(DUE_FILE=.*\)$|if :; then \1; fi|'
+doctor
+expect "T258 L2  the log assigned after ';' is read, not missed" GUARDED L2
+expect "T259 S2  the lock assigned inside '{ …; }' is found, not missed" GUARDED S2
+expect "T260 S10 the wakeup file assigned after 'then' is followed, not missed" GUARDED S10
+
+# The other side of the same split: a ';' or '{' INSIDE quotes, a ${…} or a $(…) is not a
+# command boundary. A message that happens to contain `; RUNLOG=…` must not become an
+# assignment — the last one wins, so it would silently replace the real log path.
+make_chain semiq
+mutate "s|^\(RUNLOG=.*\)$|\1\nMSG=\"done; RUNLOG=$ROOT/nowhere/x.log\"\nALT=\"\${NOPE:-a;RUNLOG=/nowhere}\"\nNOW2=\$(printf x; RUNLOG=/nowhere)|"
+doctor
+expect "T261 L2  '; NAME=' inside quotes, \${…} or \$(…) is not an assignment" GUARDED L2
+
+# The cold review of that first cut (S309) found five ways to manufacture an assignment bash
+# never makes, all from the same assumption — that a line stands alone and only `$(` and `${`
+# open a context. Each case below hides `PATH=/nowhere` where bash would not assign it, after a
+# launcher PATH that resolves the agent; if the decoy is collected, the PATH is replaced and
+# L12 loses its GUARDED. Each was seen red on the first cut.
+semi_decoy() {  # $1 test id  $2 label  $3 sed replacement for the NOW line (decoy + NOW)
+  make_chain "semid$1"
+  sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+  mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:\$PATH\"\n$3\nNOW=\$(date +%s)|"
+  doctor
+  expect "$1 L12 $2" GUARDED L12
+}
+semi_decoy T262 "a ';' on the 2nd line of a quoted string is text" 'MSG="first line\nthen decide; PATH=/nowhere is text"'
+semi_decoy T263 "a ';' in a here-document body is text" "cat >/dev/null <<'EOF'\ncd /a \|\| exit 1; PATH=/nowhere\nEOF"
+semi_decoy T264 "an assignment in a '( … )' subshell does not escape it" '( cd /a \|\| exit 1; PATH=/nowhere )'
+semi_decoy T265 "a ';' inside backticks is not a boundary" 'X=`cd /a; PATH=/nowhere`'
+semi_decoy T266 "a ')' inside quotes does not close the \$(…)" 'X=$(echo ")"; PATH=/nowhere)'
+semi_decoy T267 "';#' starts a comment" 'X=1;# old; PATH=/nowhere'
+
 # Same blind spot, second check: S7 resolves the keep-awake wrapper through the same helper.
 # It never fired in the wild only because `caffeinate` lives in /usr/bin, which is in launchd's
 # default PATH — the false positive was latent, not absent.
