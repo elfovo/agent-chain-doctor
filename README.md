@@ -18,8 +18,10 @@ verdict.
 
 **Already using healthchecks.io, Cronitor or another heartbeat monitor?** Keep it — it answers
 *whether* the run happened. It cannot answer *why* when the scheduler never started the job:
-no run means no output to capture, and you get "no error, no failed run, nothing in the job
-history". This answers that half, from the machine itself.
+no run means no output to capture. When that scheduler is your own — cron, launchd, systemd —
+this answers that half, from the machine itself. When it is hosted (Claude Code Routines,
+Desktop scheduled tasks, an agent gateway's internal cron), nothing local can read it, this
+tool included: [missed-run-check](docs/missed-runs.md) only tells you the same hour that it skipped.
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/elfovo/agent-chain-doctor/main/agent-chain-doctor
