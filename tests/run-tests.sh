@@ -1554,6 +1554,64 @@ else
   ok "T251 L12 …and \$PATH_ORIG is a replacement, not an extension: no GUARDED"
 fi
 
+# $PATH inside a launcher assignment is the PATH as it stood BEFORE that line — the previous
+# assignment, or the scheduler's when there is none. It used to resolve through the generic
+# lookup instead: the plist if it declares PATH, else the LAST assignment in the file. Two
+# false EXPOSED followed, both found by a cold review of 280e3a1 (S303, F1/F2).
+# F1 — no PATH in the plist: `export PATH="$ROOT/bin:$PATH"` then a run-time fallback prepend.
+# The export's own $PATH was looked up in the fallback line, which cannot be expanded.
+make_chain l12i
+sed -i.bak "s|<key>PATH</key><string>[^<]*</string>||" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:\$PATH\"\nfor REPERTOIRE in \$HOME/.claude/local; do\n  PATH=\"\$REPERTOIRE:\$PATH\"; export PATH\ndone\nNOW=\$(date +%s)|"
+doctor
+expect "T252 L12 \$PATH in an export is the scheduler's, not the run-time fallback's that follows it" GUARDED L12
+
+# F2 — the plist declares PATH, the launcher REPLACES it, then prepends to its own value.
+# `$PATH` in the second line is "$ROOT/bin", not the plist's /usr/bin:/bin.
+make_chain l12j
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin\"\nPATH=\"/opt/none:\$PATH\"\nNOW=\$(date +%s)|"
+doctor
+expect "T253 L12 \$PATH after a launcher's own replacement is that replacement, not the plist's" GUARDED L12
+
+# Found by a cold review of the in-order walk itself, before it was committed:
+# an EMPTY last assignment is still the PATH — `$( … )` around the list ate the empty line.
+make_chain l12k
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:\$PATH\"\nPATH=\"\"\nNOW=\$(date +%s)|"
+doctor
+if printf '%s\n' "$OUT" | grep -q "GUARDED  *L12"; then
+  bad "T254 L12 an emptied PATH vouches for nothing: no GUARDED" "L12 vouched for a PATH the launcher empties"
+else
+  ok "T254 L12 an emptied PATH vouches for nothing: no GUARDED"
+fi
+
+# A known directory prepended after an unknown replacement is on the PATH whatever the
+# replacement held: drop the unknown, keep the known.
+make_chain l12l
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|PATH=\"\$NVM_BIN_AT_RUNTIME\"\nexport PATH=\"$ROOT/bin:\$PATH\"\nNOW=\$(date +%s)|"
+doctor
+expect "T255 L12 a known prepend after an unknown replacement still vouches for its directory" GUARDED L12
+
+# `${PATH:+:$PATH}` is the careful way to prepend; it parsed as a default and lost the prefix.
+make_chain l12m
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin\${PATH:+:\$PATH}\"\nNOW=\$(date +%s)|"
+doctor
+expect "T256 L12 \${PATH:+:\$PATH} is read as a prepend" GUARDED L12
+
+# `${PATH:-x}` after the launcher set PATH is that PATH, never the default.
+make_chain l12n
+sed -i.bak "s|<key>PATH</key><string>[^<]*</string>||" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"/bin\"\nPATH=\"/x:\${PATH:-$ROOT/bin}\"\nNOW=\$(date +%s)|"
+doctor
+if printf '%s\n' "$OUT" | grep -q "GUARDED  *L12"; then
+  bad "T257 L12 \${PATH:-x} on a set PATH is not x: no GUARDED" "L12 took the default of a PATH that is set"
+else
+  ok "T257 L12 \${PATH:-x} on a set PATH is not x: no GUARDED"
+fi
+
 # Same blind spot, second check: S7 resolves the keep-awake wrapper through the same helper.
 # It never fired in the wild only because `caffeinate` lives in /usr/bin, which is in launchd's
 # default PATH — the false positive was latent, not absent.

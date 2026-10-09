@@ -1972,28 +1972,72 @@ guard_for_var() {
 # and print a certainty the tool does not have.
 LAUNCHER_PATH=""
 LAUNCHER_PATH_PROVISIONAL=0
+# subst_all STRING NEEDLE REPLACEMENT → every NEEDLE replaced, both taken literally. Not
+# `${s//x/$r}`: under bash ≥ 5.2 an `&` in $r stands for the match, and quoting $r to stop it
+# leaves the quotes in the result under the bash 3.2 macOS ships.
+subst_all() {
+  local s="$1" out=""
+  while :; do
+    case "$s" in *"$2"*) out="$out${s%%"$2"*}$3"; s="${s#*"$2"}" ;; *) break ;; esac
+  done
+  printf '%s' "$out$s"
+}
+
+# protect_path RAW → RAW with every reference to PATH replaced by a mark expand_value leaves
+# alone, so launcher_path can put back the PATH as it stood before that line rather than
+# whatever a generic lookup finds. `$PATH` as a whole word only: `$PATH_ORIG` is another
+# variable. The parameter forms assume PATH is set, which it always is by then:
+# `${PATH:-x}` and `${PATH=x}` are the PATH, `${PATH:+:$PATH}` is what follows the `+`.
+protect_path() {
+  local s="$1" out="" rest c inner
+  while :; do
+    case "$s" in *'${PATH'[:+=-]*'}'*) ;; *) break ;; esac
+    out="$out${s%%\$\{PATH[:+=-]*}"; rest="${s#*\$\{PATH}"
+    inner="${rest%%\}*}"; rest="${rest#*\}}"
+    case "$inner" in
+      +*|:+*) s="${inner#:}"; s="${s#+}$rest" ;;
+      *)      out="$out@@prevpath@@"; s="$rest" ;;
+    esac
+  done
+  s="$out$s"; out=""
+  s=$(subst_all "$s" '${PATH}' '@@prevpath@@')
+  while :; do
+    case "$s" in *'$PATH'*) ;; *) break ;; esac
+    out="$out${s%%\$PATH*}"; rest="${s#*\$PATH}"
+    c="${rest%"${rest#?}"}"
+    case "$c" in [A-Za-z0-9_]) out="$out\$PATH" ;; *) out="$out@@prevpath@@" ;; esac
+    s="$rest"
+  done
+  printf '%s' "$out$s"
+}
+
 launcher_path() {
   local sched="${1:-}" raw val pre rest post
   LAUNCHER_PATH=""; LAUNCHER_PATH_PROVISIONAL=0
-  # Walk the PATH assignments from the LAST one back. A later `PATH="$DIR:$PATH"` whose $DIR
-  # is only known at run time (a fallback loop) EXTENDS the PATH: skip it, the value before it
-  # still holds. A later unknown that does not carry $PATH REPLACES it: nothing earlier can
-  # vouch, give up. Reading only the last line accused its author's own working chain (S303).
-  local raws line
-  raws=$(printf '%s' "$ASSIGN_CACHE" | awk -F'\t' '$1=="PATH"{sub(/^PATH\t/,""); print}' | sed '1!G;h;$!d')
-  [ -n "$raws" ] || return 1
-  val=""
-  while IFS= read -r line; do
-    raw="$line"
-    val=$(expand_value "$raw" 0) || val="$UNRESOLVED_MARK"
-    case "$val" in
-      *"$UNRESOLVED_MARK"*)
-        # $PATH as a whole word only: $PATH_ORIG is another variable, i.e. a replacement.
-        case "$raw" in *'${PATH}'*|*'$PATH'|*'$PATH'[!A-Za-z0-9_]*) val=""; continue ;; *) return 1 ;; esac ;;
-    esac
-    break
-  done <<< "$raws"
-  [ -n "$val" ] || return 1
+  # Walk the PATH assignments IN ORDER, carrying the value as it stands after each one: `$PATH`
+  # inside an assignment is the PATH before that line — the previous assignment, or the
+  # scheduler's. Resolving it through the generic lookup read the plist or the LAST line, and
+  # reading the last line alone accused its author's own working chain (S303). Whatever cannot
+  # be expanded — a directory found at run time, `$(brew --prefix)` — is dropped segment by
+  # segment at the end: this PATH is only ever SEARCHED, so a hit in a directory that is
+  # certainly on it stays a hit, and a value made only of unknowns reads as nothing.
+  # Known limit: assignments are read in file order, not control flow — two exclusive branches
+  # that each prepend a known directory are counted as both.
+  local line rest_c cur="$sched" seg out="" IFS_SAVE="$IFS" found=0
+  rest_c="$ASSIGN_CACHE"
+  while [ -n "$rest_c" ]; do
+    line="${rest_c%%
+*}"
+    if [ "$line" = "$rest_c" ]; then rest_c=""; else rest_c="${rest_c#*
+}"; fi
+    case "$line" in "PATH	"*) ;; *) continue ;; esac
+    found=1
+    raw="${line#PATH	}"
+    val=$(expand_value "$(protect_path "$raw")" 0) || val="$UNRESOLVED_MARK"
+    cur=$(subst_all "$val" '@@prevpath@@' "$cur")
+  done
+  [ "$found" -eq 1 ] || return 1
+  val="$cur"
   # `${AGENT_PATH:-/a:/b}` is the common shape: the tool cannot know whether the scheduler
   # exports AGENT_PATH, so expand_value marks the default provisional. The default is still
   # what the chain runs with when nothing overrides it — keep it, and carry the reserve.
@@ -2005,12 +2049,14 @@ launcher_path() {
       *) break ;;
     esac
   done
-  # A launcher that appends to what it was handed: resolve $PATH from the scheduler, or drop
-  # that segment rather than search a literal '$PATH' directory.
-  val="${val//\$\{PATH\}/$sched}"
-  val="${val//\$PATH/$sched}"
-  case "$val" in ''|*'$'*) return 1 ;; esac
-  LAUNCHER_PATH="$val"
+  IFS=':'
+  for seg in $val; do
+    case "$seg" in ''|*"$UNRESOLVED_MARK"*|*'$'*) continue ;; esac
+    out="${out:+$out:}$seg"
+  done
+  IFS="$IFS_SAVE"
+  [ -n "$out" ] || return 1
+  LAUNCHER_PATH="$out"
 }
 
 # RESOLVE_SRC / RESOLVE_LISTS describe WHERE the answer came from — part of the answer, since
