@@ -1988,7 +1988,8 @@ launcher_path() {
     val=$(expand_value "$raw" 0) || val="$UNRESOLVED_MARK"
     case "$val" in
       *"$UNRESOLVED_MARK"*)
-        case "$raw" in *'$PATH'*|*'${PATH}'*) val=""; continue ;; *) return 1 ;; esac ;;
+        # $PATH as a whole word only: $PATH_ORIG is another variable, i.e. a replacement.
+        case "$raw" in *'${PATH}'*|*'$PATH'|*'$PATH'[!A-Za-z0-9_]*) val=""; continue ;; *) return 1 ;; esac ;;
     esac
     break
   done <<< "$raws"

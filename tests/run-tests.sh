@@ -1543,6 +1543,17 @@ else
   ok "T250 L12 …but a later unknown REPLACEMENT voids it: no GUARDED"
 fi
 
+# …and $PATH_ORIG is not $PATH: a name that merely STARTS with PATH is a replacement too.
+make_chain l12h
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:/usr/bin:/bin\"\nPATH=\"\$PATH_ORIG\"\nNOW=\$(date +%s)|"
+doctor
+if printf '%s\n' "$OUT" | grep -q "GUARDED  *L12"; then
+  bad "T251 L12 …and \$PATH_ORIG is a replacement, not an extension: no GUARDED" "L12 read \$PATH_ORIG as \$PATH"
+else
+  ok "T251 L12 …and \$PATH_ORIG is a replacement, not an extension: no GUARDED"
+fi
+
 # Same blind spot, second check: S7 resolves the keep-awake wrapper through the same helper.
 # It never fired in the wild only because `caffeinate` lives in /usr/bin, which is in launchd's
 # default PATH — the false positive was latent, not absent.
