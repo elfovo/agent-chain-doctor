@@ -1975,9 +1975,24 @@ LAUNCHER_PATH_PROVISIONAL=0
 launcher_path() {
   local sched="${1:-}" raw val pre rest post
   LAUNCHER_PATH=""; LAUNCHER_PATH_PROVISIONAL=0
-  raw=$(raw_assign PATH) || return 1
-  val=$(expand_value "$raw" 0) || return 1
-  case "$val" in *"$UNRESOLVED_MARK"*) return 1 ;; esac
+  # Walk the PATH assignments from the LAST one back. A later `PATH="$DIR:$PATH"` whose $DIR
+  # is only known at run time (a fallback loop) EXTENDS the PATH: skip it, the value before it
+  # still holds. A later unknown that does not carry $PATH REPLACES it: nothing earlier can
+  # vouch, give up. Reading only the last line accused its author's own working chain (S303).
+  local raws line
+  raws=$(printf '%s' "$ASSIGN_CACHE" | awk -F'\t' '$1=="PATH"{sub(/^PATH\t/,""); print}' | sed '1!G;h;$!d')
+  [ -n "$raws" ] || return 1
+  val=""
+  while IFS= read -r line; do
+    raw="$line"
+    val=$(expand_value "$raw" 0) || val="$UNRESOLVED_MARK"
+    case "$val" in
+      *"$UNRESOLVED_MARK"*)
+        case "$raw" in *'$PATH'*|*'${PATH}'*) val=""; continue ;; *) return 1 ;; esac ;;
+    esac
+    break
+  done <<< "$raws"
+  [ -n "$val" ] || return 1
   # `${AGENT_PATH:-/a:/b}` is the common shape: the tool cannot know whether the scheduler
   # exports AGENT_PATH, so expand_value marks the default provisional. The default is still
   # what the chain runs with when nothing overrides it — keep it, and carry the reserve.

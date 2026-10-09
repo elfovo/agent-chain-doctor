@@ -1519,6 +1519,30 @@ mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:\$PATH\"\nNOW=\$(date +%s)|"
 doctor
 expect "T98  L12 a launcher that appends to the scheduler PATH is read, not refused" GUARDED L12
 
+# The LAST assignment is not the PATH the agent runs with when it only PREPENDS. A launcher
+# that exports its PATH at the top, then — in a fallback function — does
+# `PATH="$REPERTOIRE:$PATH"` with a directory found at run time, was read through that last
+# line alone: $REPERTOIRE cannot be expanded, the exported PATH was thrown away, and L12
+# accused a chain with 134 clean sessions behind it. Found by pointing the tool at its own
+# author's chain, 2026-10-09 (S303).
+make_chain l12f
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:/usr/bin:/bin\"\nfor REPERTOIRE in \$HOME/.claude/local; do\n  PATH=\"\$REPERTOIRE:\$PATH\"; export PATH\ndone\nNOW=\$(date +%s)|"
+doctor
+expect "T249 L12 a later, unexpandable PREPEND does not erase the PATH exported before it" GUARDED L12
+
+# …but a later assignment that REPLACES the PATH with something unknown is not a prepend:
+# the earlier value may not be what the agent runs with, so it cannot vouch for the binary.
+make_chain l12g
+sed -i.bak "s|<string>$ROOT/bin:/usr/bin:/bin</string>|<string>/usr/bin:/bin</string>|" "$PLIST" && rm -f "$PLIST.bak"
+mutate "s|^NOW=\$(date +%s)|export PATH=\"$ROOT/bin:/usr/bin:/bin\"\nPATH=\"\$FOUND_AT_RUNTIME\"\nNOW=\$(date +%s)|"
+doctor
+if printf '%s\n' "$OUT" | grep -q "GUARDED  *L12"; then
+  bad "T250 L12 …but a later unknown REPLACEMENT voids it: no GUARDED" "L12 vouched for a PATH a later line replaces"
+else
+  ok "T250 L12 …but a later unknown REPLACEMENT voids it: no GUARDED"
+fi
+
 # Same blind spot, second check: S7 resolves the keep-awake wrapper through the same helper.
 # It never fired in the wild only because `caffeinate` lives in /usr/bin, which is in launchd's
 # default PATH — the false positive was latent, not absent.
