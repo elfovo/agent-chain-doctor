@@ -1309,6 +1309,26 @@ if printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | grep -q ":${WANT}:"; then
 else bad "T86  S8  the evidence is the line that RUNS the agent, not a guard or a declaration" \
   "wanted line $WANT ; got: $(printf '%s\n' "$OUT" | grep -A2 '^  EXPOSED  S8' | sed -n 2p | sed 's/^ *//')"; fi
 
+
+# S8 of the cold audit of 2026-10-10 (issue #7, family "the proof is not tied to the thing it
+# protects"): the timeout(1) branch searched the WHOLE FILE for a `timeout` call and counted
+# any of them. A launcher that bounds its `git fetch` and lets the agent run free was told
+# "the agent call is bounded by timeout(1)" — the exact sentence that stops you looking for
+# the watchdog you do not have. The bound has to be on the call, not in the file.
+make_chain s8elsewhere
+mutate '/^( sleep "\$TIMEOUT"/,+2d' '/WATCHDOG_PID/d' '/^wait "\$AGENT_PID"/d' \
+       's|^IDLE_RAW=|timeout 30 git -C "$BOT_HOME" fetch --quiet origin main \|\| true\nIDLE_RAW=|'
+doctor
+expect "T347a S8  a timeout(1) around some OTHER command is not a bound on the agent" EXPOSED S8
+
+# S11 of the same audit: the cap branch fell back to the mere PRESENCE of a `MAX_AHEAD`-ish
+# name, so an assignment nobody reads certified the cap. This fixture keeps the declaration
+# `: "${MAX_AHEAD:=2592000}"` and deletes the one line that compares anything to it.
+make_chain s11unused
+mutate '/^if \[ "\$DUE" -gt \$((NOW + MAX_AHEAD)) \]/d'
+
+doctor
+expect "T347b S11  a cap variable that is assigned and never compared caps nothing" EXPOSED S11
 # I-033 — the variable holding the agent binary was only recognised SPELLED IN CAPITALS. The
 # name pattern is `[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*`, which reads as case-insensitive and
 # is not: the alternation is uppercase-only. A launcher writing `claude_bin="$(command -v

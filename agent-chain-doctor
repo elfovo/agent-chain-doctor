@@ -2597,12 +2597,28 @@ check_S8_watchdog() {
   # whose agent WAS bounded was told "nothing bounds how long the agent may run" (exp-008).
   # S8 is the check you reach for when you suspect a hung agent — a false EXPOSED here sends
   # someone hunting a watchdog they already have.
-  local t
   # code_first, not code_first_running — six lines after the call site was hardened against
   # exactly this. `log "timeout 900 reached, killing the agent"` matched, and S8 answered
   # GUARDED with a MESSAGE as its address: the check you reach for when you suspect a hung
   # agent said one was bounded because the launcher had a line SAYING so.
-  t=$(code_first_running '(^|[^A-Za-z_-])(timeout|gtimeout)[[:space:]]+[-"'"'"'0-9$]') || t=""
+  #
+  # And the timeout has to be ON THE CALL. This searched the whole file and counted any
+  # `timeout` it found, so a launcher that bounds its `git fetch` and lets the agent run free
+  # was told "the agent call is bounded by timeout(1)" — the one sentence that stops you
+  # looking for the watchdog you do not have (cold audit 2026-10-10, item S8). A bound proved
+  # somewhere else in the file is the family of defect this kit sells a registry against.
+  local t="" tpat='(^|[^A-Za-z_-])(timeout|gtimeout)[[:space:]]+[-"'"'"'0-9$]'
+  local cn; cn=$(lineno "$call")
+  if printf '%s' "${call#*:}" | grep -qE "$tpat"; then
+    t="$call"
+  else
+    # `timeout 900 \` then the call on the next line: the bound is one line up, and the
+    # continuation is what ties the two together. No continuation, no tie.
+    local prev; prev=$(sed -n "$((cn - 1))p" "$LAUNCHER" 2>/dev/null)
+    case "$prev" in
+      *'\\') printf '%s' "$prev" | grep -qE "$tpat" && t="$((cn - 1)):$prev" ;;
+    esac
+  fi
   if [ -n "$t" ]; then
     finding GUARDED S8 static "the agent call is bounded by timeout(1)" "$(ev "$t")"
     return
@@ -2737,7 +2753,22 @@ check_S11_wakeup_cap() {
   fi
   local cap
   cap=$(code_first '\-gt[[:space:]]+.?\$\(\([^)]*(NOW|now|TODAY)[[:space:]]*\+') || cap=""
-  [ -n "$cap" ] || cap=$(code_first '(MAX_AHEAD|MAX_FUTURE|AHEAD_MAX|MAX_DELAY)') || cap=""
+  # The fallback used to accept the mere PRESENCE of the name, so `: "${MAX_AHEAD:=2592000}"`
+  # with nothing reading it certified a cap that caps nothing (cold audit 2026-10-10, item
+  # S11). A declaration is a plan; the cap is the comparison. Require the name to appear
+  # where a value is being USED — a test, an arithmetic context, a dereference — and not
+  # only on the left of its own `=`.
+  if [ -z "$cap" ]; then
+    # The name must appear where a value is READ, which in shell means "not immediately
+    # followed by = or :=". `MAX_AHEAD=86400` and `: "${MAX_AHEAD:=2592000}"` are plans;
+    # `$((NOW + MAX_AHEAD))` is the cap. The reference is matched bare as well as $-prefixed
+    # because the arithmetic form — the usual one — carries no $ on the inner name.
+    local capname
+    for capname in MAX_AHEAD MAX_FUTURE AHEAD_MAX MAX_DELAY; do
+      cap=$(code_first "(^|[^A-Za-z_0-9])\\\$?\\{?${capname}\\}?([^A-Za-z_0-9=:]|\$)") || cap=""
+      [ -n "$cap" ] && break
+    done
+  fi
   if [ -n "$cap" ]; then
     finding GUARDED S11 static "a wakeup far in the future is refused" "$(ev "$cap")"
   else
