@@ -2442,11 +2442,41 @@ check_S4_lock_failure() {
       "this launcher takes its lock some other way, or takes none"
     return
   fi
+  # What the mkdir ITSELF does on failure, before looking anywhere else. The window below is
+  # four lines wide and ` -d ` beat `exit 0` in it, so a neighbouring `[ -d "$STATE/cache" ] ||
+  # mkdir -p …` — a line about a different directory — certified the failure branch of this
+  # one, and the report printed `mkdir "$LOCK" || exit 0` as the EVIDENCE for being guarded:
+  # the defect quoted as its own proof (cold audit 2026-10-10, item S4). A `||` tail on the
+  # mkdir line is not ambiguous and is not someone else's: it IS the failure branch.
+  local tail=""
+  case "${ln#*:}" in *'||'*) tail="${ln#*||}" ;; esac
+  case "$tail" in
+    *'exit 0'*|*'return 0'*|*true*)
+      finding EXPOSED S4 static "a failed mkdir is treated as 'someone else has the lock'" \
+        "$(ev "$ln")" \
+        "a full disk, a read-only volume or a root-owned state dir is indistinguishable from a lost race" \
+        "the chain then exits silently at every tick and nothing is ever written anywhere"
+      return ;;
+  esac
   local win; win=$(code_window "$(lineno "$ln")" 4)
+  # And a `-d`/`-e` test only speaks for THIS lock if it names it. Any other directory's
+  # existence test is not evidence about the lock, however close it sits.
+  local probe=' -d \| -e '
+  if [ -n "$V_LOCK" ]; then
+    printf '%s' "$win" | grep -qE "\[[^]]*-[de][^]]*$(vref "$V_LOCK")" || probe='__none__'
+  fi
   case "$win" in
-    *' -d '*|*' -e '*|*'exit 1'*|*'exit 2'*|*log_line*)
+    *'exit 1'*|*'exit 2'*|*log_line*)
       finding GUARDED S4 static "a failed mkdir is told apart from a lost race" \
         "$(ev "$ln")" "the failure branch tests whether the lock is actually there before giving up" ;;
+    *' -d '*|*' -e '*)
+      if [ "$probe" = '__none__' ]; then
+        finding UNKNOWN S4 static "could not read what happens when mkdir fails" "$(ev "$ln")" \
+          "the only existence test nearby is about another directory, not \$$V_LOCK"
+      else
+        finding GUARDED S4 static "a failed mkdir is told apart from a lost race" \
+          "$(ev "$ln")" "the failure branch tests whether the lock is actually there before giving up"
+      fi ;;
     *'exit 0'*|*'return 0'*|*'|| true'*)
       finding EXPOSED S4 static "a failed mkdir is treated as 'someone else has the lock'" \
         "$(ev "$ln")" \

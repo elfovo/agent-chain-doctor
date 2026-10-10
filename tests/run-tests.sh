@@ -1329,6 +1329,16 @@ mutate '/^if \[ "\$DUE" -gt \$((NOW + MAX_AHEAD)) \]/d'
 
 doctor
 expect "T347b S11  a cap variable that is assigned and never compared caps nothing" EXPOSED S11
+
+# S4 of the same audit: the failure branch was read from a FOUR-LINE WINDOW in which ` -d `
+# beat `exit 0`, so a neighbouring existence test about a different directory certified this
+# mkdir's failure branch — and the report printed `mkdir "$GATE" || exit 0` as the EVIDENCE
+# for being guarded. The defect quoted as its own proof is the worst shape a verdict can take.
+make_chain s4window
+mutate '/^if ! mkdir "\$GATE" 2>\/dev\/null; then/,+3d' \
+       's|^echo \$\$ > "\$GATE/pid"|mkdir "$GATE" \|\| exit 0\n[ -d "$BOT_STATE/cache" ] \|\| mkdir -p "$BOT_STATE/cache"\necho $$ > "$GATE/pid"|'
+doctor
+expect "T347c S4  an existence test about ANOTHER directory does not guard this mkdir" EXPOSED S4
 # I-033 — the variable holding the agent binary was only recognised SPELLED IN CAPITALS. The
 # name pattern is `[A-Za-z_]*(CLI|CMD|BIN|AGENT)[A-Za-z_]*`, which reads as case-insensitive and
 # is not: the alternation is uppercase-only. A launcher writing `claude_bin="$(command -v
