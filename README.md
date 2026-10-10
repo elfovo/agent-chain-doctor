@@ -151,7 +151,7 @@ the block that stood here until 2026-09-04 was a faithful run of the 26-check ve
 counters still added to 26 six lines above a sentence promising they always add to 29.
 
 ```
-agent-chain-doctor 1.1 — read-only: it writes nothing and opens no socket.
+agent-chain-doctor 1.4 — read-only: it writes nothing and opens no socket.
 Verify that yourself: bash tests/run-tests.sh, cases T35 to T39.
 
 CHAIN

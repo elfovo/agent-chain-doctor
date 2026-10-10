@@ -757,6 +757,21 @@ else bad "T119 S15  …and a log line SAYING 'exit' is not a use of the code" \
 # (`if ! agent; then`) needs no variable, and this check cannot follow what was never stored.
 make_chain s15b; mutate '/^if \[ "\$BOT_RC" -ne 0 \]/d' '/^BOT_RC=\$?$/d'; doctor
 expect "T120 S15  no exit code captured at all → UNKNOWN, not GUARDED" UNKNOWN S15
+# Under `set -e` the test of the code is dead code: a non-zero agent ends the launcher on its
+# own line, before `BOT_RC=$?` runs, so the branch that reacts to a failure only ever sees 0.
+# Measured by running it with an agent that exits 3: the log stayed empty. GUARDED there was a
+# protection that cannot fire. The two controls are the two ways people keep errexit AND the
+# code: consume the status on the call's own line, or switch errexit off around the call.
+make_chain s15e; mutate 's/^set -uo pipefail$/set -euo pipefail/'; doctor
+expect "T268 S15  under set -e a test of the exit code only ever sees 0" EXPOSED S15
+make_chain s15f
+mutate 's/^set -uo pipefail$/set -euo pipefail/' 's/^wait "\$AGENT_PID"$/BOT_RC=0; wait "$AGENT_PID" || BOT_RC=$?/' '/^BOT_RC=\$?$/d'
+doctor
+expect "T269 S15  …but a status consumed on the call's own line reaches the test" GUARDED S15
+make_chain s15g
+mutate 's/^set -uo pipefail$/set -euo pipefail/' 's/^wait "\$AGENT_PID"$/set +e\nwait "$AGENT_PID"/'
+doctor
+expect "T270 S15  …and so does one read after errexit was switched off" GUARDED S15
 
 # S16 — the spacing marker stamped only at the start. The fix is an ADDED write, never a moved
 # one: a session that dies mid-run never reaches the end, and a missing marker is what loops
@@ -1459,6 +1474,24 @@ make_chain l12n
 mutate 's|BOT_CLI|BOT_RUNNER|g' 's|"\$BOT_RUNNER" -p|aider -p|g'
 doctor
 expect "T92  L12 an agent named in plain text, with no variable, is still found" EXPOSED L12
+# …and named by an ABSOLUTE path, which is the fix this very check recommends. The left
+# neighbour of the name is then `/`, which the search did not accept: the call was invisible,
+# the answer UNKNOWN even with the plist in hand, and the GUARDED branch for an absolute path
+# reachable only through a *BIN* variable. Kept whole, the path is checked as a file — PATH
+# plays no part in it.
+make_chain l12abs
+printf '#!/bin/bash\nexit 0\n' > "$ROOT/bin/claude"; chmod +x "$ROOT/bin/claude"
+mutate 's|BOT_CLI|BOT_RUNNER|g' "s|\"\\\$BOT_RUNNER\" -p|$ROOT/bin/claude -p|g"
+doctor
+expect "T271 L12 an agent called by an absolute path to an executable is GUARDED" GUARDED L12
+make_chain l12absx
+mutate 's|BOT_CLI|BOT_RUNNER|g' "s|\"\\\$BOT_RUNNER\" -p|$ROOT/nowhere/claude -p|g"
+doctor
+expect "T272 L12 …and one whose file does not exist is EXPOSED" EXPOSED L12
+make_chain l12absv
+mutate 's|BOT_CLI|BOT_RUNNER|g' 's|"\$BOT_RUNNER" -p|"$HOME/.local/bin/claude" -p|g'
+doctor
+expect "T273 L12 …and a path built from a variable is UNKNOWN, not a PATH lookup" UNKNOWN L12
 
 # F-I — the same root as F-D(2), and it reaches further than S8: a MENTION inside a message is
 # not a use. On a foreign chain the only shell line naming the wakeup file was

@@ -1,5 +1,5 @@
 #!/bin/bash
-# agent-chain-doctor 1.1 — read-only diagnosis of a scheduled AI-agent chain.
+# agent-chain-doctor 1.4 — read-only diagnosis of a scheduled AI-agent chain.
 #
 # You scheduled an agent to work while you sleep. It ran the first night. The question you
 # cannot answer alone is: is it still running, and what will stop it for good without saying
@@ -37,7 +37,7 @@
 
 set -u
 
-VERSION="1.3"
+VERSION="1.4"
 VERBOSE=0
 LAUNCHER=""
 PLIST=""
@@ -70,7 +70,7 @@ ACD_CRONTAB="${ACD_CRONTAB:-}"
 
 usage() {
   cat <<'USAGE'
-agent-chain-doctor 1.1 — read-only diagnosis of a scheduled AI-agent chain.
+agent-chain-doctor 1.4 — read-only diagnosis of a scheduled AI-agent chain.
 
   agent-chain-doctor [--verbose] [--plist FILE] [LAUNCHER]
 
@@ -1838,12 +1838,26 @@ check_L12_path() {
     # The NAME is then a guess, but what follows it — does the scheduler's PATH resolve that
     # binary — stays exact, so the evidence says where the name came from.
     local ln
-    if ln=$(src_line '(^|[;&|(]|[[:space:]])(claude|codex|aider|gemini|ollama|cursor-agent|goose)([[:space:]]|$)'); then
+    # `/` is a legal left neighbour too. Without it `/opt/homebrew/bin/claude -p …` — the
+    # documented fix for the very failure this check exists for — was not seen at all, and
+    # the GUARDED branch for an absolute path was reachable only through a *BIN* variable.
+    if ln=$(src_line '(^|[;&|("'"'"'/]|[[:space:]])(claude|codex|aider|gemini|ollama|cursor-agent|goose)(["'"'"']|[[:space:]]|$)'); then
       # -E, and it is not cosmetic: `\|` is a GNU extension that BSD sed does not implement,
       # so on macOS this produced nothing and L12 answered "no agent binary name found in the
       # launcher" on every chain that names its agent in plain text — which is most of them.
       AGENT_BIN=$(printf '%s' "$ln" | sed -nE 's/.*[^A-Za-z-](claude|codex|aider|gemini|ollama|cursor-agent|goose)[^A-Za-z-].*/\1/p' | head -n 1)
       bin_src="the name found at ${LAUNCHER##*/}:${ln%%:*}, not in a variable"
+      # The whole word when it is a path. Keeping only the name would search the scheduler's
+      # PATH for a binary the launcher never looks up there, and accuse a chain that is fine.
+      local tok; tok=$(printf ' %s ' "${ln#*:}" \
+        | grep -oE "[[:space:];&|(\"']/[^[:space:];&|()\"']*/(claude|codex|aider|gemini|ollama|cursor-agent|goose)([[:space:];&|)\"']|\$)" \
+        | head -n 1 | sed -E "s/^[[:space:];&|(\"']//; s/[[:space:];&|)\"']\$//")
+      if [ -n "$tok" ]; then AGENT_BIN="$tok"
+      elif printf '%s' "${ln#*:}" | grep -qE "[\$~][^[:space:]]*/(claude|codex|aider|gemini|ollama|cursor-agent|goose)([^A-Za-z-]|\$)"; then
+        finding UNKNOWN L12 live "the agent is called through a path built from a variable" \
+          "$(ev "$ln")" "this tool does not expand it; PATH plays no part in a path, so check that file yourself"
+        return
+      fi
     fi
   fi
   if [ -z "$AGENT_BIN" ]; then
@@ -2989,6 +3003,40 @@ EOF
 # up for ever and produces nothing, and the log keeps exactly the shape of a healthy chain: a
 # header, an end line, a wakeup. It is the quietest failure mode there is, and the number that
 # names it is sitting in the log, unread.
+# errexit_at N → 0 when `set -e` is in force on line N of the launcher. The last `set` before N
+# that names errexit decides (-e, -eu…, -o errexit on; +e, +o errexit off); a shebang carrying
+# -e counts as the first. Read top to bottom and nothing more: a `set -e` inside a function, or
+# one undone in a subshell, is not followed — a known limit, and it errs toward "not in force",
+# which leaves S15 where it was before this existed.
+errexit_at() {  # $1 = line number
+  local on=1 l n w prev words
+  if head -n 1 "$LAUNCHER" 2>/dev/null | grep -qE '^#!.*[[:space:]]-[A-Za-z]*e[A-Za-z]*([[:space:]]|$)'; then on=0; fi
+  while IFS= read -r l; do
+    [ -n "$l" ] || continue
+    n=$(lineno "$l"); [ "$n" -lt "$1" ] || break
+    prev=""
+    # read -a, not an unquoted expansion: the line is someone else's shell, and `*` in it would glob.
+    read -r -a words <<<"${l#*:}"
+    for w in "${words[@]}"; do
+      if [ "$prev" = "set" ] || [ "$prev" = "set-o" ] || [ "$prev" = "set+o" ]; then
+        case "$prev:$w" in
+          set-o:errexit) on=0 ;;
+          set+o:errexit) on=1 ;;
+          set:-o) prev="set-o"; continue ;;
+          set:+o) prev="set+o"; continue ;;
+          set:-*e*) case "$w" in --*) ;; *) on=0 ;; esac ;;
+          set:+*e*) on=1 ;;
+        esac
+        case "$w" in [-+]*) prev="set"; continue ;; esac
+      fi
+      case "$w" in set) prev="set" ;; *) prev="" ;; esac
+    done
+  done <<EOF
+$(code_all '(^[0-9]+:|[;&|{(][[:space:]]*|(then|else|do)[[:space:]]+)[[:space:]]*set[[:space:]]+[-+]')
+EOF
+  return "$on"
+}
+
 check_S15_exit_code_read() {
   local ret; ret=$(agent_return_line) || ret=""
   if [ -z "$ret" ]; then
@@ -3046,6 +3094,29 @@ EOF
   [ -n "$use" ] || use=$(first_use_after "${CMD_POS}case[[:space:]]+\"?$v" "$capn") || use=""
   [ -n "$use" ] || use=$(first_use_after "\\\$\\(\\([^)]*${var}[^)]*\\)\\)" "$capn") || use=""
   [ -n "$use" ] || use=$(first_use_after "${CMD_POS}(exit|return)[[:space:]]+\"?$v" "$capn") || use=""
+  # A use that cannot run with a failure is not a use. Under `set -e` the agent's own line ends
+  # the launcher when it returns non-zero, so `RC=$?` and every test after it only ever see 0 —
+  # measured with an agent exiting 3: the log stayed empty and this check said GUARDED. The
+  # status survives errexit only when it is consumed on that same line (`|| RC=$?`, `if`, `!`).
+  if [ -n "$use" ] && errexit_at "$ret"; then
+    local retl; retl=$(code_first "^$ret:") || retl=""
+    # Three shapes keep the status alive: consumed on the agent's line, consumed on the capture
+    # line (`wait "$PID" || RC=$?` — the helper that finds the return line skips lines that
+    # open on an assignment, so the capture line is read too), or a line that only puts the
+    # agent in the background, whose status errexit never sees.
+    case "${retl#*:}|${cap#*:}" in
+      *'||'*|*'&&'*) ;;
+      *'&|'*|*'&'[[:space:]]*'|'*) ;;
+      *)
+        if ! printf '%s' "${retl#*:}" | grep -qE '^[[:space:]]*(if|elif|while|until|!)[[:space:]]'; then
+          finding EXPOSED S15 static "the exit code is tested, but set -e ends the launcher before a failure reaches the test" \
+            "$(ev "$retl")" "$(ev "$use")" \
+            "errexit is in force on the agent's line and nothing on that line consumes its status" \
+            "a failing agent kills the launcher there: the failure branch never runs and nothing is logged"
+          return
+        fi ;;
+    esac
+  fi
   if [ -n "$use" ]; then
     finding GUARDED S15 static "the agent's exit code changes what the launcher does" "$(ev "$use")"
   else
