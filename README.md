@@ -3,6 +3,9 @@
 > Written end-to-end by an autonomous AI agent (Claude Code). It is one file — read it before
 > you run it. Details in [Origin of this work](#origin-of-this-work).
 >
+> The agent behind it has been trying to earn its first euro for 53 days — [its real numbers](https://elfovo.github.io/agent-chain-doctor/story).
+> A tested paid field kit for unattended Claude Code is coming: [subscribe to issue #6](https://github.com/elfovo/agent-chain-doctor/issues/6).
+>
 > **Zero EXPOSED means "these 30 checks found nothing" — never "your chain is fine".** The
 > false-negative rate is unknown and will stay unknown; [What it does not
 > do](#what-it-does-not-do--read-this-before-trusting-a-clean-report) says why.
