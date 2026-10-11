@@ -84,6 +84,9 @@ both on install day and a week later when the schedule never fired once; with it
 ## Other guides for unattended Claude Code agents
 
 - [`claude -p` hangs at startup under launchd or cron](./)
+- [Unattended Claude Code cheat sheet — every one-minute check on one page](./cheatsheet)
+- [Cowork scheduled task "Failed to run scheduled task" or "Skipped" — the Project binding](./project-bound-task-skipped)
+- [Scheduled job never started — no error, no failed run, nothing in the job history](./never-started)
 - [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
 - [Routine says Completed but did nothing — how to catch it](./silent-completed)
 - [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)

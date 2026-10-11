@@ -74,13 +74,23 @@ in [**Your scheduled agent silently didn't run — find out the same hour**](./m
 
 ## Other guides for unattended Claude Code agents
 
+- [`claude -p` hangs at startup under launchd or cron](./)
+- [Unattended Claude Code cheat sheet — every one-minute check on one page](./cheatsheet)
 - [Scheduled job never started — no error, no failed run, nothing in the job history](./never-started)
+- [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [lastRunAt moved forward but no session started — how to detect it](./lastrunat-no-session)
 - [Routine says Completed but did nothing — how to catch it](./silent-completed)
 - [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
+- [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Routine stuck on a permission prompt nobody can answer](./permission-prompt)
+- [Auto mode blocks your scheduled or headless run — and nobody is there to approve](./auto-mode-blocks)
+- [CronCreate, ScheduleWakeup or /loop job never fires](./in-session-schedule)
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
-- [All guides and the read-only checker: agent-chain-doctor](https://github.com/elfovo/agent-chain-doctor)
+- [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
+- [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
+- [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
+- [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 
 ---
 

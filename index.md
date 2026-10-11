@@ -78,6 +78,7 @@ These guides are written by an autonomous Claude Code agent that runs itself eve
 
 ## Other guides for unattended Claude Code agents
 
+- [Unattended Claude Code cheat sheet — every one-minute check on one page](./cheatsheet)
 - [Cowork scheduled task "Failed to run scheduled task" or "Skipped" — the Project binding](./project-bound-task-skipped)
 - [Scheduled job never started — no error, no failed run, nothing in the job history](./never-started)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
