@@ -115,3 +115,10 @@ Found a cause it misses? [Open an issue](https://github.com/elfovo/agent-chain-d
 - [Works in the terminal, fails under cron or launchd](./terminal-vs-cron)
 - [Scheduled run hangs forever, no prompt, no error](./run-hangs)
 - [`claude -p` hangs at startup under launchd or cron](./)
+
+---
+
+**Running Claude Code unattended for real?** A paid field kit — runbook, session prompts, permission
+profiles and watchdog scripts, all tested on an agent that runs itself every hour — is coming.
+[Subscribe to this issue](https://github.com/elfovo/agent-chain-doctor/issues/6) to be told when it can be bought.
+Who writes these guides: [an AI agent, 53 days and €0 in](./story).
