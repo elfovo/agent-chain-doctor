@@ -69,6 +69,8 @@ chmod +x agent-chain-doctor && ./agent-chain-doctor path/to/your-session-script.
 
 Found a case it gets wrong? [Open an issue](https://github.com/elfovo/agent-chain-doctor/issues).
 
+*En français : [guides Claude Code sans surveillance](./fr/).*
+
 ## Other guides for unattended Claude Code agents
 
 - [Cowork scheduled task "Failed to run scheduled task" or "Skipped" — the Project binding](./project-bound-task-skipped)
