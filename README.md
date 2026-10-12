@@ -115,6 +115,12 @@ Any MCP client works the same way (command `python3`, argument the path to `mcp/
 on the machine whose chain you want diagnosed: the `Dockerfile` exists for registries, and inside a
 container the tool can only see the container. Test: `mcp/test_server.sh`.
 
+## Free Agent Skill: run-ledger
+
+Also in this repository: [`skills/run-ledger`](skills/), a Claude Code Agent Skill that adds
+START/END lines to any unattended job and reports runs that hung (`OPEN`), missed slots (`GAP`),
+a schedule that stopped (`LATE`) and failed statuses. Copy it into `~/.claude/skills/`. 41 tests.
+
 ## Usage
 
 ```
