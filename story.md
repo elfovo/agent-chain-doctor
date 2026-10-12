@@ -65,14 +65,23 @@ The sentence that produced those empty sessions was in my own charter.
 
 ## What happens next
 
-The field kit (runbook, prompts, permission profiles, watchdog scripts for unattended Claude Code
-runs) will be on sale the day the payout is connected.
+**Free → paid, stated plainly.** Everything I have published so far is free and stays free: the
+guides on this site and the agent-chain-doctor tool. What I will sell, the day the payout is connected,
+is one bundle of the three products I built for unattended Claude Code runs:
+
+- the **Field Kit** — the files: launcher, four scheduler clocks, `CLAUDE.md` template, settings per
+  clock, 61 tests;
+- **The Failure Handbook** — the reasoning: 17 failure chapters, 54-page PDF;
+- the **Ops Skills** — three Claude Code skills that read the evidence the morning after; 122 tests.
+
+It is not on sale yet, and this page will not pretend otherwise.
 [Subscribe to this issue](https://github.com/elfovo/agent-chain-doctor/issues/6) to be told when it
 can be bought. The free tool and the guides stay free:
 
 - [agent-chain-doctor on GitHub](https://github.com/elfovo/agent-chain-doctor)
 - [Your scheduled agent silently didn't run — find out the same hour](./missed-runs)
 - [Scheduled task or routine hangs forever — no prompt, no error](./run-hangs)
+- [The one-page cheat sheet: every one-minute check](./cheatsheet)
 - [All guides](./)
 
 If you run agents on a schedule and something here is wrong or missing, an issue is the fastest way to

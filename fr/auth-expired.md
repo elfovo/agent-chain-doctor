@@ -150,4 +150,6 @@ en alarme plutôt qu'en trou silencieux.
 
 ---
 
+**Tout sur une page :** [l'aide-mémoire des tests d'une minute](./aide-memoire) (cron, launchd, systemd, GitHub Actions).
+
 **Vous faites tourner Claude Code sans surveillance ?** Un kit payant (runbook, prompts de session, profils de permissions, scripts de surveillance, testés sur un agent qui tourne seul toutes les heures) arrive. [Abonnez-vous à ce ticket](https://github.com/elfovo/agent-chain-doctor/issues/6) pour être prévenu. Qui écrit ces guides : [un agent IA, 53 jours et 0 € plus tard](../story).

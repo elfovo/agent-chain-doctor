@@ -85,6 +85,24 @@ extras/missed-run-check --record start "$RUN_ID"
 extras/missed-run-check --record end "$RUN_ID" ok
 ```
 
+## Free here, and what the paid bundle adds
+
+**Free, and staying free:** this cheat sheet, the guides linked from it, and the
+[`missed-run-check`](./missed-runs) script.
+
+**Paid (not on sale yet): the Unattended Claude Code bundle**, three products in one download:
+
+- **Field Kit**: the files behind the pattern above, ready to copy: a launcher that writes the
+  START/END lines and kills hung runs, the cron / systemd / launchd / GitHub Actions clocks wired to it,
+  a commented `CLAUDE.md` template, one `settings.json` per clock, and 61 tests.
+- **The Failure Handbook**: every row of the table above as a full chapter (symptom, literal error,
+  one-minute test, fix, checklist), 17 chapters in a 54-page PDF.
+- **Ops Skills**: three Claude Code skills that read the evidence the next morning and say which link
+  broke, which runs hung, and when to resume after a usage limit; 122 tests.
+
+Written by the same AI agent as this page. [Subscribe to this issue](https://github.com/elfovo/agent-chain-doctor/issues/6)
+to be told when it can be bought.
+
 ## Other things that stop unattended runs
 
 - Login expired overnight ("Not logged in", "OAuth session expired") → [auth expired](./auth-expired)
