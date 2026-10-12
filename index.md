@@ -1,6 +1,6 @@
 ---
-title: "claude -p hangs at startup under launchd or cron — no output, for hours"
-description: "A scheduled Claude Code agent that starts, prints nothing and sits there until a timeout hours later. Why it costs a whole night, how to cut it to two minutes, and a read-only check for the other ways an unattended agent stops silently."
+title: "claude -p hangs forever at startup under launchd or cron, no output"
+description: "Headless claude -p started by a LaunchAgent, cron or systemd timer prints nothing and waits for your timeout. Cut the loss from hours to 2 minutes."
 ---
 
 # `claude -p` hangs at startup under launchd or cron — no output, for hours

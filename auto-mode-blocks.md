@@ -1,6 +1,6 @@
 ---
-title: "Claude Code auto mode blocks your scheduled or headless run — and nobody is there to approve"
-description: "In auto mode, a classifier reviews each action. Unattended, a block has no one to answer it: claude -p keeps going without the action, a scheduled task ends 'done' with half the work. What the docs say, what to configure, and how to see every denial."
+title: "Claude Code auto mode blocks or \"classifier unavailable\" in claude -p"
+description: "Headless or scheduled, auto mode blocks an action or its classifier is unavailable, nobody approves. What the docs say, what to set, how to see denials."
 ---
 
 # Auto mode blocked your unattended run

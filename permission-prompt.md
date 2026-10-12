@@ -1,6 +1,6 @@
 ---
-title: "Claude Code routine stuck on a permission prompt nobody can answer — what to do"
-description: "A scheduled Claude Code routine or task asks for approval, nobody is watching, and the run hangs or reports success without doing the work. What is known to trigger it, how to avoid the prompt, and how to find out the same hour."
+title: "Claude Code scheduled task stalls silently on a permission prompt"
+description: "A routine or scheduled task waits on an approval nobody gives: it hangs, or reports success with no work. What triggers it, how to avoid it, how to know."
 ---
 
 # Your routine is waiting for an approval nobody will give

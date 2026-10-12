@@ -1,6 +1,6 @@
 ---
-title: "Claude Code scheduled task or routine hangs forever — no prompt, no error"
-description: "A Claude Code scheduled task, cloud routine or claude -p job starts, then sits there for hours: no approval prompt, no error, no end. What the public reports show, what bounds the damage, and how to know within the hour."
+title: "Claude Code scheduled task stuck \"Running\" forever, no error"
+description: "A scheduled task, cloud routine or claude -p run stays Running for hours, often at its first Bash call, and later fires skip. Bound it, know in the hour."
 ---
 
 # Your scheduled run started, then never ended

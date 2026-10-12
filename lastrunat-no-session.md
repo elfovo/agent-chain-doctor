@@ -1,6 +1,6 @@
 ---
-title: "Claude Code scheduled task: lastRunAt updated but no session started — how to detect it"
-description: "The scheduler says the task ran (lastRunAt moved forward) yet no session, no transcript and no output exist. Why the scheduler's own record cannot catch this, and a heartbeat check that does."
+title: "Scheduled task lastRunAt updates but no session is spawned (Claude)"
+description: "A scheduled task or routine shows a fresh lastRunAt, yet no session, transcript or output. Why the scheduler misses it, and a check that catches it."
 ---
 
 # lastRunAt moved forward, but no session ever started

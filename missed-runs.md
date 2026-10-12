@@ -1,6 +1,6 @@
 ---
-title: "Claude Code scheduled task or routine silently didn't run — how to find out the same hour"
-description: "Routines, Desktop scheduled tasks and cron jobs skip fires, hang on a permission prompt or stop after a few hours without telling anyone. A 90-line heartbeat check that alerts you when the beats stop."
+title: "Claude Code scheduled task didn't run? Catch the skipped fire same hour"
+description: "A routine, Desktop scheduled task or cron job skipped a fire with no history record. A ~90-line heartbeat check alerts you the hour the beats stop."
 ---
 
 # Your scheduled agent silently didn't run — find out the same hour, not three days later

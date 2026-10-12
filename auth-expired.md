@@ -1,6 +1,6 @@
 ---
-title: "Scheduled claude -p job fails with \"Not logged in\", \"OAuth session expired\" or \"Login expired\""
-description: "Your cron job, launchd agent or CI step running claude -p works for days, then fails on authentication until someone types /login, while claude works fine in your terminal. Give the job its own one-year token, avoid the two traps that make that fix silently wrong, and make the auth failure loud the same hour."
+title: "claude -p \"OAuth session expired and could not be refreshed\" in cron"
+description: "Cron, launchd or CI claude -p fails with OAuth session expired, Login expired or Not logged in. Give the job its own token and alert the same hour."
 ---
 
 # Your scheduled `claude -p` job keeps getting logged out

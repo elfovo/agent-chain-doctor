@@ -1,6 +1,6 @@
 ---
-title: "Claude Code CronCreate, ScheduleWakeup or /loop job never fires — why, and what to use instead"
-description: "durable:true ignored, the cron dies with the session, a wakeup is confirmed and never fires, /loop runs once and stops. Why in-session schedules are fragile for unattended work, and how to know the same hour when one skipped."
+title: "CronCreate durable: true ignored, ScheduleWakeup never fires: why"
+description: "Claude Code CronCreate dies with the session, ScheduleWakeup says scheduled and never fires, /loop runs once. Why, what to use instead, how to see a skip."
 ---
 
 # Your in-session schedule never fired

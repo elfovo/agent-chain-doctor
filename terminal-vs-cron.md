@@ -1,6 +1,6 @@
 ---
-title: "Claude Code works in your terminal but fails under cron or launchd — what differs"
-description: "Headless claude -p runs fine by hand and dies, hangs or does nothing when a scheduler starts it. The differences between your shell and the scheduler's environment, and a read-only script that checks 29 of them."
+title: "Claude Code works in terminal but fails in cron or launchd: 29 checks"
+description: "claude -p runs by hand, then exits 127, hangs or does nothing under cron, launchd or systemd. The differences from your shell, and a script that checks 29."
 ---
 
 # Works in the terminal, fails under cron or launchd

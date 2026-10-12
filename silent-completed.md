@@ -1,6 +1,6 @@
 ---
-title: "Claude Code routine says Completed but did nothing — how to catch it"
-description: "A scheduled Claude Code routine or task is marked Completed or succeeded, yet no commit, no file, no message was produced. Make the run prove its work before it records an end, and let an independent check turn 'Completed with no work' into an alarm."
+title: "Claude Code routine shows Completed but the task never ran"
+description: "A routine or scheduled task says Completed or succeeded, yet no commit, file or message exists. Make each run prove its work, and alarm when it does not."
 ---
 
 # Your routine says *Completed*, and nothing happened

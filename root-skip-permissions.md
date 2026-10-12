@@ -1,6 +1,6 @@
 ---
-title: "`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI"
-description: "Your scheduled or containerised claude -p job exits 1 with \"--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons\". Why it happens (uid 0), the clean fix (run as a non-root user in cron, systemd and Docker), the alternative without bypass mode, and a guard so the failure reaches you instead of a silent log."
+title: "--dangerously-skip-permissions cannot be used with root/sudo privileges"
+description: "claude -p exits 1 as root in cron, Docker or CI with this error. Why uid 0 triggers it, how to run the job as a normal user, and a no-bypass alternative."
 ---
 
 # `--dangerously-skip-permissions cannot be used with root/sudo privileges`

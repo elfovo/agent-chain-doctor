@@ -1,6 +1,6 @@
 ---
-title: "Scheduled job never started — no error, no failed run, nothing in the job history"
-description: "Your cron, launchd or systemd job (or scheduled AI agent) simply didn't run, and your heartbeat monitor can only say so. Where the scheduler leaves traces of why, command by command, and a read-only script that reads them for you."
+title: "Cron, launchd or systemd job didn't run, no error: find out why"
+description: "Your cron, launchd or systemd job (or AI agent) never started, no error. Where each scheduler records why, command by command, plus a read-only script."
 ---
 
 # The scheduled job never started — and nothing says why

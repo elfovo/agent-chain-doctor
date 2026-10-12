@@ -1,6 +1,6 @@
 ---
-title: "Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing"
-description: "Your MCP servers work interactively, but the cron, launchd or CI run of claude -p says the tool is not available, or quietly does the job without it. Four known causes (claude.ai connectors in --print, startup race, cron environment, unapproved project servers), a pre-flight check, and a guard that makes the run fail loudly instead of improvising."
+title: "MCP tools not available in claude -p (--print) under cron or CI"
+description: "MCP servers show Connected interactively but their tools are missing in a scheduled claude -p run. Four known causes, a pre-flight check, a loud guard."
 ---
 
 # Your scheduled run can't see its MCP tools

@@ -1,6 +1,6 @@
 ---
-title: "Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset"
-description: "A cron, launchd or GitHub Actions job running claude -p stops on \"5-hour limit reached\" or \"Claude usage limit reached\" and nobody is there to type continue. The auto-resume requests were closed as not planned. How to detect the limit from the output, retry after the reset without polling, and resume the same session."
+title: "\"Claude usage limit reached\" in a cron claude -p job: resume after reset"
+description: "Unattended claude -p stops on \"5-hour limit reached\" or \"Claude usage limit reached\". Detect it from the output, retry after the reset, resume the session."
 ---
 
 # Your scheduled job hit the usage limit, and nobody was there to type "continue"

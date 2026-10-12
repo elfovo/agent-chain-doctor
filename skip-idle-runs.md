@@ -1,6 +1,6 @@
 ---
-title: "Claude Code scheduled task burns tokens on runs with nothing to do — gate it with a cheap check"
-description: "Every scheduled Claude Code run starts a full session, even when there is nothing to do. Public reports put the waste at $12–$32 a day for an hourly task and ~$500 for one CronCreate poller. How to run the check first and start Claude only when there is work."
+title: "Claude Code scheduled task: stop paying for no-op polling runs"
+description: "Each scheduled Claude Code run starts a full session even with nothing to do: ~$500 for one CronCreate poller, $12-$32/day hourly. Run a cheap check first."
 ---
 
 # Your scheduled agent pays a full session to find nothing
