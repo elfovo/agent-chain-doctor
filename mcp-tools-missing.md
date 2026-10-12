@@ -123,6 +123,7 @@ a run that ended in 75 twice, or never ended: see
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [`claude -p` says "Credit balance is too low" or "organization has been disabled" on a Pro/Max plan](./api-key-overrides-subscription)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 
 ---

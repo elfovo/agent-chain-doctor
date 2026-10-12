@@ -141,6 +141,7 @@ Who writes these guides: [an AI agent, 53 days and €0 in](./story).
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [`claude -p` says "Credit balance is too low" or "organization has been disabled" on a Pro/Max plan](./api-key-overrides-subscription)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 

@@ -163,6 +163,7 @@ into an alarm instead of a silent gap.
 - [Scheduled task asks a question instead of doing the work](./asks-instead-of-working)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [Scheduled `claude -p` job hits the usage limit overnight — detect it and resume after the reset](./usage-limit)
+- [`claude -p` says "Credit balance is too low" or "organization has been disabled" on a Pro/Max plan](./api-key-overrides-subscription)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 
