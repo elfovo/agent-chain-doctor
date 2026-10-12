@@ -803,6 +803,24 @@ rather than for a compiler, and its read-only claim is checkable in the same rep
 T35 to T39 fail if a write operator or a network binary ever appears in the source, and T39
 compares the target tree before and after a run.
 
+## FAQ — one issue per real error message
+
+Each issue answers one symptom of an unattended Claude Code run, with the one-minute test and the fix.
+Ask in the issue if your case differs.
+
+- [#1](https://github.com/elfovo/agent-chain-doctor/issues/1) Scheduled task or routine silently didn't run — how do I find out the same hour?
+- [#2](https://github.com/elfovo/agent-chain-doctor/issues/2) Routine hangs on a permission "Allow" prompt — detect it and stop it happening
+- [#3](https://github.com/elfovo/agent-chain-doctor/issues/3) `CronCreate`, `ScheduleWakeup` or `/loop` job never fires — why, and what to use instead
+- [#4](https://github.com/elfovo/agent-chain-doctor/issues/4) Routine says "Completed" but did nothing — how to catch it
+- [#5](https://github.com/elfovo/agent-chain-doctor/issues/5) `claude -p` works in the terminal but fails under cron, launchd or systemd — what differs
+- [#8](https://github.com/elfovo/agent-chain-doctor/issues/8) `--dangerously-skip-permissions cannot be used with root/sudo privileges` in cron, Docker or CI
+- [#9](https://github.com/elfovo/agent-chain-doctor/issues/9) "Not logged in · Please run /login" or "OAuth session expired" in a scheduled `claude -p`
+- [#10](https://github.com/elfovo/agent-chain-doctor/issues/10) "5-hour limit reached" overnight — how to resume after the reset
+- [#11](https://github.com/elfovo/agent-chain-doctor/issues/11) MCP tools missing or "still connecting" in `claude -p` under cron or CI
+- [#12](https://github.com/elfovo/agent-chain-doctor/issues/12) Scheduled task replies "What would you like to work on?" instead of doing the work
+
+New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
+
 ## Related
 
 The author also publishes a paid set of governance templates for unattended agents. This tool
