@@ -1,6 +1,6 @@
 ---
 title: "claude-code-action: \"SDK execution error\" / \"Claude Code process exited with code 1\" — find the real error"
-description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause, nor is \"result is_error:true\". The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, and the causes reporters found."
+description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause, nor is \"result is_error:true\". The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, the causes reporters found, and why Bun's \"directory mismatch\" warning is not one."
 ---
 
 # claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error
@@ -84,6 +84,23 @@ The cause is in the `result` field the log leaves out. We ran v1.0.248 on GitHub
 2026-10-13 with a fake key: the step above printed `Invalid API key · Fix external API key`.
 Before v1.0.172 the same result left the step **green**: on an older pin, a review that never
 happened shows a passing check.
+
+### "Internal error: directory mismatch for directory .../tsconfig.json"
+
+This line from Bun often sits in the same log as a failure (#1295, #1568), so it gets blamed:
+
+```
+Internal error: directory mismatch for directory "/home/runner/work/_actions/anthropics/claude-code-action/v1/tsconfig.json", fd 4. You don't need to do anything, but this indicates a bug.
+```
+
+It is most likely **not your cause**. Bun prints it as a warning and keeps running
+(oven-sh/bun#22023, open; #25730 was closed as its duplicate). The action used to trigger it with
+`--tsconfig-override`; that flag was removed in **v1.0.143** (#1315), and `action.yml` lines 280-284
+at v1.0.248 still carry the comment warning against it. Reports keep showing the line on v1.0.161
+to v1.0.172 and later, next to a different error: `process exited with code 1` on older pins, or
+the `is_error:true` lines above on v1.0.172+. Nobody from the project has confirmed it fails a
+run on its own. So skip it, find the `stderr:` tail or the `is_error` line, and read the `result`
+field with the step below.
 
 ## Why the log hides the cause
 
