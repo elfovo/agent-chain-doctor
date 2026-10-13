@@ -86,6 +86,8 @@ reachability and that the **published** asset's SHA-256 equals `fileSha256`. It 
 `curl` and `jq`, writes nothing, and exits 1 on any problem. Tested on 2026-10-13 against npm,
 PyPI, GitHub releases and the registry: 13 cases, among them a stale hash, a missing asset, an npm
 `mcpName` mismatch, a PyPI version that does not exist and a README without the token.
+The same script lives in its own repository, with the tests and a weekly CI run against the
+live registries: [elfovo/mcp-registry-preflight](https://github.com/elfovo/mcp-registry-preflight).
 
 ```bash
 #!/usr/bin/env bash
