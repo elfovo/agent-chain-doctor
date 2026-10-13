@@ -137,6 +137,7 @@ If the run dies earlier, on the OIDC exchange itself, that is the previous guide
 - [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
 - [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
+- [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 
 ---
 

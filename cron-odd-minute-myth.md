@@ -178,6 +178,7 @@ the next question is whether it had anything to do at all —
 - [`mcp-publisher publish` fails: "server returned status 400" / "registry validation failed for package 0"](./mcp-registry-publish-400)
 - [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
+- [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 
 ---
 
