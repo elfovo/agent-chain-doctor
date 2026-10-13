@@ -39,6 +39,36 @@ They are a source excerpt printed next to a stack trace, not the error.
 | [anthropics/claude-code-action#1205](https://github.com/anthropics/claude-code-action/issues/1205) Consistent Bun crash: 'directory mismatch for tsconfig.json' — Claude Code process exits with code 1 | 2026-04-10 | closed |
 | [anthropics/claude-code-action#1817](https://github.com/anthropics/claude-code-action/issues/1817) installer reports success but leaves no launcher on ubuntu-latest, "native binary not found" | 2026-09-08 | open |
 
+## First: read the end of the failure line
+
+Since action **v1.0.175** (2026-07-15), the failure line carries the cause. The action moved to
+Agent SDK `^0.3.211` in that release, and 0.3.211 is the first SDK version that appends the last
+2 KB of Claude Code's stderr to the error (`formatStderrTail`, absent from 0.3.210). Reproduced
+with Claude Code 2.1.296 and an invalid `--max-turns abc`:
+
+```
+# SDK 0.3.207 (action v1.0.174 and older)
+Error: Claude Code process exited with code 1
+
+# SDK 0.3.296 (action v1.0.175 and later)
+Error: Claude Code process exited with code 1. stderr: error: option '--max-turns <turns>' argument 'abc' is invalid. must be a number
+```
+
+No `stderr:` after `code 1` means your pin is older than v1.0.175 (a SHA or tag frozen by
+Dependabot, for instance): move the pin and the next failure explains itself.
+
+What we reproduced as startup failures (exit code 1, no message received, explicit stderr on SDK 0.3.296):
+
+| what is wrong | what `stderr:` says |
+|---|---|
+| a non-numeric `--max-turns` in `claude_args` | `argument 'abc' is invalid. must be a number` |
+| `--allowedTools` with no value | `option '--allowedTools, --allowed-tools <tools...>' argument missing` |
+| an unknown option in `claude_args` | `unknown option '--frobnicate'` |
+| `--mcp-config` pointing to a missing file | `MCP config file not found` |
+| `--mcp-config` with broken JSON | `Invalid MCP configuration` |
+
+A `--settings` value with broken JSON, on the other hand, does **not** stop the start.
+
 ## Why the log hides the cause
 
 By default the action prints a **sanitized** copy of the result message. In
