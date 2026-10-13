@@ -1,6 +1,6 @@
 ---
 title: "claude-code-action: \"SDK execution error\" / \"Claude Code process exited with code 1\" — find the real error"
-description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause, nor is \"result is_error:true\". The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, the causes reporters found, and why Bun's \"directory mismatch\" warning is not one."
+description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause, nor is \"result is_error:true\". The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, the causes reporters found, why Bun's \"directory mismatch\" warning and the \"branches/claude%2Fissue-... - 404\" lines are not one."
 ---
 
 # claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error
@@ -101,6 +101,37 @@ to v1.0.172 and later, next to a different error: `process exited with code 1` o
 the `is_error:true` lines above on v1.0.172+. Nobody from the project has confirmed it fails a
 run on its own. So skip it, find the `stderr:` tail or the `is_error` line, and read the `result`
 field with the step below.
+
+### "GET /repos/.../branches/claude%2Fissue-... - 404"
+
+These lines come at the very end of the log, so they look like the last thing that broke
+([#589](https://github.com/anthropics/claude-code-action/issues/589), 13 comments; #1645):
+
+```
+GET /repos/<owner>/<repo>/branches/claude%2Fissue-4-20250924-2130 - 404
+Branch claude/issue-4-20250924-2130 does not exist remotely, no branch link will be added
+GET /repos/<owner>/<repo>/compare/master...claude%2Fissue-4-20250924-2130 - 404
+Error checking for changes in branch: HttpError: Not Found
+```
+
+They are **not your cause**, and the `%2F` is not a bad encoding (that is how Octokit writes a `/`
+in a branch name, and GitHub accepts it). Read at v1.0.248: for an issue, the action creates
+`claude/issue-N-...` **locally only** (`src/github/operations/branch.ts` lines 325-336). The branch
+exists on GitHub only if Claude pushes to it. After the run, the cleanup step (the `finally` block
+of `src/entrypoints/run.ts`, line 325) asks GitHub for the branch, gets 404 and logs "does not
+exist remotely" (`branch-cleanup.ts` lines 50-62); `update-comment-link.ts` (lines 133-169) then
+calls `compare` anyway, gets a second 404 and catches it ("Don't fail the entire update"). Both
+are logged and swallowed.
+
+So the 404 only says **nothing was pushed**. Two cases:
+
+- Claude failed earlier. Look higher up for the `stderr:` tail or the `is_error` line and read the
+  `result` field with the step below. In #1645 the real line was `is_error:true` after 1.9 s at a
+  cost of 0.
+- Claude ran but was not allowed to push. The workflow in #589 had `contents: read` and limited
+  `--allowed-tools` to `gh issue ...` commands. If you expect code changes, give the job
+  `contents: write` (with `pull-requests: write` and `issues: write`) and don't strip the git tools.
+  For a question that needs no code, the 404 is expected and you can ignore it.
 
 ## Why the log hides the cause
 
