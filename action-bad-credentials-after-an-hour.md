@@ -199,6 +199,7 @@ green and Claude did nothing within seconds, see [Workflow validation failed](./
 - [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
 - [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
+- [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
 
 ---
 

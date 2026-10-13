@@ -165,6 +165,7 @@ run, the app token expired: see [Bad credentials after an hour](./action-bad-cre
 - [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
+- [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
 
 ---
 

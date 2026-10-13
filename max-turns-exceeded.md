@@ -194,6 +194,7 @@ nothing, that is the validation skip, see
 - [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 - [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
+- [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
 
 ---
 
