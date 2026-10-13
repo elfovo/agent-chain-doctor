@@ -132,6 +132,8 @@ finished: see [your scheduled agent silently didn't run](./missed-runs).
 - [Scheduled `claude -p` job fails with "Not logged in", "OAuth session expired" or "Login expired"](./auth-expired)
 - [Scheduled task burns tokens on runs with nothing to do — gate it with a cheap check](./skip-idle-runs)
 - [`claude -p` says "Credit balance is too low" or "organization has been disabled" on a Pro/Max plan](./api-key-overrides-subscription)
+- [Claude Code fails under cron, CI or Docker: "Raw mode is not supported" or "can't read the keyboard here"](./raw-mode-stdin)
+- [claude-code-action: "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL" or "App token exchange failed: 401"](./actions-id-token)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 
