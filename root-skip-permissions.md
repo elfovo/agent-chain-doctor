@@ -148,6 +148,8 @@ exit "$status"
 - [claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error](./action-sdk-execution-error)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`mcp-publisher publish` fails: "server returned status 400" / "registry validation failed for package 0"](./mcp-registry-publish-400)
+- [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
+- [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 
 ---
 

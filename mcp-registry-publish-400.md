@@ -249,6 +249,8 @@ registry's own docs ([registry#1505](https://github.com/modelcontextprotocol/reg
 - [claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error](./action-sdk-execution-error)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
+- [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
+- [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 
 ---
 
