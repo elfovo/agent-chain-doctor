@@ -177,6 +177,7 @@ Exit 1 fails the Actions job, and GitHub emails you about failed scheduled workf
 - [`claude -p` says "Credit balance is too low" or "organization has been disabled" on a Pro/Max plan](./api-key-overrides-subscription)
 - [Claude Code fails under cron, CI or Docker: "Raw mode is not supported" or "can't read the keyboard here"](./raw-mode-stdin)
 - [claude-code-action: "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL" or "App token exchange failed: 401"](./actions-id-token)
+- [claude-code-action: "Workflow validation failed" — the run is green and Claude did nothing](./action-skipped-green)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
 - [`mcp-publisher publish` fails: "server returned status 400" / "registry validation failed for package 0"](./mcp-registry-publish-400)
