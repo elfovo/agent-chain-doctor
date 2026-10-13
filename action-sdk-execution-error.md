@@ -1,6 +1,6 @@
 ---
 title: "claude-code-action: \"SDK execution error\" / \"Claude Code process exited with code 1\" — find the real error"
-description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause. The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, and the causes reporters found."
+description: "The minified JavaScript after \"SDK execution error: 14 |\" is not the cause, nor is \"result is_error:true\". The action hides the real message in the log but writes it to a file. Where to read it, a step that prints it, and the causes reporters found."
 ---
 
 # claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error
@@ -68,6 +68,22 @@ What we reproduced as startup failures (exit code 1, no message received, explic
 | `--mcp-config` with broken JSON | `Invalid MCP configuration` |
 
 A `--settings` value with broken JSON, on the other hand, does **not** stop the start.
+
+### "Claude execution failed: result is_error:true"
+
+When Claude Code starts but its first API call is refused (bad key, no credit), there is no crash and
+no `stderr:`. Since action **v1.0.172** (2026-07-13, #1496) the step fails with these two lines, and
+nothing else:
+
+```
+##[error]Claude result reported subtype success with is_error:true (run did not complete successfully)
+##[error]Action failed with error: Claude execution failed: result is_error:true
+```
+
+The cause is in the `result` field the log leaves out. We ran v1.0.248 on GitHub Actions on
+2026-10-13 with a fake key: the step above printed `Invalid API key · Fix external API key`.
+Before v1.0.172 the same result left the step **green**: on an older pin, a review that never
+happened shows a passing check.
 
 ## Why the log hides the cause
 
