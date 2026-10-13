@@ -1,0 +1,38 @@
+# Publish server.json to the official MCP registry (registry.modelcontextprotocol.io).
+# Authenticates with GitHub OIDC: the io.github.elfovo/* namespace is proven by this
+# workflow running in an elfovo repository, so no token or secret is stored anywhere.
+# Run by hand (workflow_dispatch) once the matching -mcp release carries the bundle.
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Bundle tests (reproducible build, declared SHA-256, server runs)
+        run: bash mcp/test_mcpb.sh && bash mcp/test_server.sh
+
+      - name: The released bundle is the one server.json pins
+        run: |
+          url=$(jq -r '.packages[0].identifier' server.json)
+          want=$(jq -r '.packages[0].fileSha256' server.json)
+          got=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+          echo "released $got / declared $want"
+          [ "$got" = "$want" ]
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish
+        run: ./mcp-publisher publish

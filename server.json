@@ -11,7 +11,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/elfovo/agent-chain-doctor/releases/download/v1.0.0-mcp/agent-chain-doctor-mcp.mcpb",
-      "fileSha256": "5f032571bc68e41a9e41c5664cc02372b27a3716ded7d03c4b037c81ab4376e2",
+      "fileSha256": "e4ab824cf48ca4ab0208740403da2e706055e1b47481590947646dda60a8a41a",
       "transport": {
         "type": "stdio"
       }
