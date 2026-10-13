@@ -115,6 +115,12 @@ Listed on the [official MCP registry](https://registry.modelcontextprotocol.io/v
 as `io.github.elfovo/agent-chain-doctor-mcp`, published from `.github/workflows/publish-mcp.yml`
 (GitHub OIDC, no stored token).
 
+**Releasing a new MCP version.** `server.json` pins the bundle by SHA-256, so any change to
+`agent-chain-doctor` or `mcp/server.py` turns `mcp/test_mcpb.sh` red until the version is bumped:
+`mcp/release.sh prepare X.Y.Z` (bumps `manifest.json` + `server.json`, re-pins, runs the bundle
+tests), commit and push, then `mcp/release.sh publish` (creates `vX.Y.Z-mcp` with the bundle, checks
+the uploaded bytes, triggers the registry workflow). Test: `mcp/test_release.sh`.
+
 Any MCP client works the same way (command `python3`, argument the path to `mcp/server.py`). Run it
 on the machine whose chain you want diagnosed: the `Dockerfile` exists for registries, and inside a
 container the tool can only see the container. Test: `mcp/test_server.sh`.

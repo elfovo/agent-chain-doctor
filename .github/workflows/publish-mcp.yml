@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Bundle tests (reproducible build, declared SHA-256, server runs)
-        run: bash mcp/test_mcpb.sh && bash mcp/test_server.sh
+        run: bash mcp/test_mcpb.sh && bash mcp/test_server.sh && bash mcp/test_release.sh
 
       - name: The released bundle is the one server.json pins
         run: |
