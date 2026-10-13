@@ -179,6 +179,7 @@ the next question is whether it had anything to do at all —
 - [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
+- [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
 
 ---
 

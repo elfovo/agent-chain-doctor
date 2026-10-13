@@ -198,6 +198,7 @@ green and Claude did nothing within seconds, see [Workflow validation failed](./
 - [claude-code-action: "Unsupported event type: push" — the ten events it accepts](./unsupported-event-type-push)
 - [The "pick an odd minute" cron fix doesn't work — 16 nights measured at minute 37](./cron-odd-minute-myth)
 - [claude-code-action: "Claude reported a successful result after N turns, exceeding the configured maximum of M"](./max-turns-exceeded)
+- [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
 
 ---
 
