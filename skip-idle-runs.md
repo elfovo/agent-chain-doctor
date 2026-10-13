@@ -111,6 +111,7 @@ heartbeats stop: see [your scheduled agent silently didn't run](./missed-runs).
 - [claude-code-action: "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL" or "App token exchange failed: 401"](./actions-id-token)
 - [Scheduled `claude -p` run can't see its MCP tools — Slack, Jira or your own server missing](./mcp-tools-missing)
 - [`--dangerously-skip-permissions cannot be used with root/sudo privileges` — fix it for cron, Docker and CI](./root-skip-permissions)
+- [`mcp-publisher publish` fails: "server returned status 400" / "registry validation failed for package 0"](./mcp-registry-publish-400)
 
 ---
 
