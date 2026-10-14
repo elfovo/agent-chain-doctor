@@ -188,6 +188,7 @@ Exit 1 fails the Actions job, and GitHub emails you about failed scheduled workf
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 - [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
 - [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
+- [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](./sdk-max-buffer-size)
 
 ---
 
