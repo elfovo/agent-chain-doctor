@@ -77,7 +77,11 @@ gives the two remedies; here is what each costs.
    [gateway protocol page](https://code.claude.com/docs/en/llm-gateway-protocol#feature-pass-through)
    lists what a gateway must pass through. If you are on a subscription login, the same header also
    carries the OAuth capability (`oauth-2025-04-20` in our capture), so a gateway that strips it is
-   already fragile.
+   already fragile. On LiteLLM in front of Bedrock, a user in
+   [#21612](https://github.com/anthropics/claude-code/issues/21612) proposed dropping the field at the
+   gateway instead, with `"drop_params": True, "additional_drop_params": ["context_management"]` in
+   `litellm_params` (they were trying it; no result followed in the thread). Even if it works, it
+   removes the feature for every client behind the gateway, and the next new field needs another line.
 2. **Set `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1`** in the job's environment (crontab line,
    launchd `EnvironmentVariables`, workflow `env:`). It works today, as measured above. It also
    turns off what those betas carry: context management, beta tool fields such as `defer_loading`,
@@ -89,12 +93,20 @@ gives the two remedies; here is what each costs.
 - **Put it in the job's environment, then check your version.** In #11678, several people set it in
   `settings.json` on 2.0.x and still failed; an Anthropic collaborator answered that there was
   an issue with loading this variable from `settings.json`. Export it where the job starts and read `claude --version`: older than 2.0.45, the variable does
-  not exist ("We added this in Claude Code v2.0.45", same collaborator).
+  not exist ("We added this in Claude Code v2.0.45", same collaborator). Older than 2.1.27, it did
+  not remove `context_management`: the 2.1.27 changelog reads "Fixed context management validation
+  error for gateway users, ensuring `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` avoids the error"
+  (in #21612, gateway users still hit the error on 2.1.22 to 2.1.25).
 - **Old threads describe old versions.** On 2.1.69 one user still got
   `tools.0.custom.defer_loading: Extra inputs are not permitted` with the variable set, and went
-  back to 2.1.66 (#11678, March 2026). The current
+  back to 2.1.66 (#11678, March 2026); two users in #21612 reported that `ENABLE_TOOL_SEARCH=false`
+  (or `=0`) fixed the same error on 2.1.69, without saying what sat behind them. The current
   [environment variable reference](https://code.claude.com/docs/en/env-vars) says the variable also
-  strips `defer_loading` and `eager_input_streaming`.
+  strips `defer_loading` and `eager_input_streaming`, and that MCP tool search is off by default when
+  `ANTHROPIC_BASE_URL` points to a non-first-party host. `ENABLE_TOOL_SEARCH=true` turns it back on
+  there: if you see `defer_loading` behind a gateway today, look for that setting first.
+- **No gateway at all?** On a subscription, `system.N.cache_control.ephemeral.scope` (table below)
+  was not fixed by the variable either.
 - **Gateway in front of Bedrock?** The
   [gateway protocol page](https://code.claude.com/docs/en/llm-gateway-protocol#feature-pass-through)
   says this error is common when a gateway accepts Anthropic-format requests and forwards them to
@@ -112,12 +124,15 @@ means a user said it; a word from an Anthropic collaborator on the repository is
 
 | field in the error | where it was reported | what it means | what to do |
 |---|---|---|---|
-| `context_management`, `tools.N.custom.input_examples`, `tools.N.custom.defer_loading` | through `ANTHROPIC_BASE_URL`: LiteLLM, Portkey, a custom proxy ([#11678](https://github.com/anthropics/claude-code/issues/11678), [#49548](https://github.com/anthropics/claude-code/issues/49548), [#51700](https://github.com/anthropics/claude-code/issues/51700)) | the header was dropped (reproduced above) | the two fixes above |
+| `context_management`, `tools.N.custom.input_examples` | through `ANTHROPIC_BASE_URL`: LiteLLM, Portkey, a custom proxy ([#11678](https://github.com/anthropics/claude-code/issues/11678), [#21612](https://github.com/anthropics/claude-code/issues/21612), [#49548](https://github.com/anthropics/claude-code/issues/49548), [#51700](https://github.com/anthropics/claude-code/issues/51700)) | the header was dropped (reproduced above) | the two fixes above; the variable needs 2.1.27 or later for `context_management` |
+| `tools.N.custom.defer_loading` | 2.1.69: with the variable set ([#11678](https://github.com/anthropics/claude-code/issues/11678)); LiteLLM in front of Bedrock ([#21612](https://github.com/anthropics/claude-code/issues/21612)) | a user's reading: MCP tool search had become the default and the backend refused its field | two users report `ENABLE_TOOL_SEARCH=false` fixed it. Today tool search is off by default behind a non-first-party `ANTHROPIC_BASE_URL`: look for `ENABLE_TOOL_SEARCH=true` |
 | `context_management`, **no gateway** | first-party API, an organization with a HIPAA flag ([#64510](https://github.com/anthropics/claude-code/issues/64510)) | the reporter's guess: the organization refuses that beta. No answer from Anthropic | the variable is the only switch reported; the reporter found it too broad |
-| `output_config`, `output_config.effort`, `output_config.format` | Bedrock and Vertex, in **side requests**: prompt-type hooks, session titles, `/insights`, the Stop-hook evaluator ([#37746](https://github.com/anthropics/claude-code/issues/37746), [#57611](https://github.com/anthropics/claude-code/issues/57611), [#63620](https://github.com/anthropics/claude-code/issues/63620), [#56689](https://github.com/anthropics/claude-code/issues/56689)) | the main conversation may run while a hook or a title fails: the one-minute test then says BOTH PASS | update Claude Code (a contributor wrote "Should be fixed in next release" in #37746, no version); a user's workaround there: command hooks instead of prompt hooks |
+| `system.N.cache_control.ephemeral.scope` | **no gateway**: Max subscription, direct API, broken from 2.1.25 to 2.1.32 in their tests ([#21612](https://github.com/anthropics/claude-code/issues/21612), two users) | a prompt-caching field; the variable did **not** help | a user's workaround: `DISABLE_PROMPT_CACHING=1`. Nothing is cached any more, so every request costs more: update and remove it as soon as the error is gone |
+| `output_config`, `output_config.effort`, `output_config.format` | Bedrock and Vertex, in **side requests**: prompt-type hooks, session titles, `/insights`, the Stop-hook evaluator ([#37746](https://github.com/anthropics/claude-code/issues/37746), [#57611](https://github.com/anthropics/claude-code/issues/57611), [#63620](https://github.com/anthropics/claude-code/issues/63620), [#56689](https://github.com/anthropics/claude-code/issues/56689)) | the main conversation may run while a hook or a title fails: the one-minute test then says BOTH PASS | update Claude Code (a contributor wrote "Should be fixed in next release" in #37746): the 2.1.122 changelog fixes it for session titles and structured-output queries, yet #57611 (2.1.138) and #63620 (2.1.150) came after. A user's workaround in #37746: command hooks instead of prompt hooks |
 | `thinking.disabled.display` | subagent spawns and session titles, 2.1.177-2.1.178 ([#68567](https://github.com/anthropics/claude-code/issues/68567), [#68797](https://github.com/anthropics/claude-code/issues/68797)) | a Claude Code bug | Anthropic collaborator: "Fixed in 2.1.183". Update |
-| `tools.0.custom.eager_input_streaming` | Bedrock, only the token count behind `/context` ([#63532](https://github.com/anthropics/claude-code/issues/63532)) | one side request | closed as completed; the variable strips this field |
+| `max_tokens`, `tools.0.custom.eager_input_streaming` | only `/context`, which counts tokens: `max_tokens` on 2.0.70, no gateway mentioned ([#14156](https://github.com/anthropics/claude-code/issues/14156)); `eager_input_streaming` on Bedrock ([#63532](https://github.com/anthropics/claude-code/issues/63532)) | one side request; your jobs are not affected | update. #14156 was closed by its author after an auto-close warning, with no fix named (a user went back to 2.0.32); the variable strips `eager_input_streaming` |
 | `diagnostics` | Vertex, 2.1.220 ([#82539](https://github.com/anthropics/claude-code/issues/82539)) | the reporter's guess: a new top-level field. No answer from Anthropic | update, then report it with your version |
+| `messages.N.content.M.thinking.valid` | a company gateway, at message 37 of a long session; the request id points to Vertex ([#19513](https://github.com/anthropics/claude-code/issues/19513), closed as not planned) | not explained in the thread; it stuck to one session | the reporter: "Starting new conversation help to fix the issue". Another gateway operator strips `valid` from every message, without knowing what the field does |
 | `messages.N.content.M.text.parsed_output`, `...start_timestamp`, `...stop_timestamp`, `...flags` | compaction on Vertex ([#84114](https://github.com/anthropics/claude-code/issues/84114)); Desktop Code tab and Windows CLI ([#90002](https://github.com/anthropics/claude-code/issues/90002), open) | the bad field is **in the saved conversation**, so every new request of that session carries it again | start a fresh session. A job that runs `--resume` or `--continue` on that session fails every time. In #90002 one user reported it gone after updating to 2.1.258; the changelog does not name the fix |
 
 The number after `messages.` is the position of the message, not a count of errors: a large
