@@ -1,6 +1,6 @@
 ---
 title: "Claude Agent SDK (TypeScript): \"Native CLI binary for linux-x64 not found\" when you never used --omit=optional"
-description: "\"Native CLI binary for <platform>-<arch> not found\" means the SDK could not resolve its per-platform package (@anthropic-ai/claude-agent-sdk-linux-x64 and friends) from where its own code sits. Read in @anthropic-ai/claude-agent-sdk 0.3.300 and reproduced three ways: --omit=optional, a node_modules built on a Mac and copied into a Linux container, and an esbuild bundle deployed without node_modules. The fix for each, and why npm installs a 249 MB musl binary you will never run."
+description: "\"Native CLI binary for <platform>-<arch> not found\" (and the older \"Claude Code native binary not found at ...-musl/claude\", issue #296, a musl binary picked on glibc) both mean the SDK did not get a runnable per-platform package (@anthropic-ai/claude-agent-sdk-linux-x64 and friends) from where its own code sits. Read in @anthropic-ai/claude-agent-sdk 0.3.300 and reproduced three ways: --omit=optional, a node_modules built on a Mac and copied into a Linux container, and an esbuild bundle deployed without node_modules. The fix for each, and why npm installs a 249 MB musl binary you will never run."
 ---
 
 # "Native CLI binary for linux-x64 not found"
@@ -103,6 +103,33 @@ With option b, a wrong path gives a different message (`Claude Code native binar
 and a binary that is found but cannot start gives a third one, which on Linux usually means the libc does
 not match (a `-musl` binary on glibc, or the reverse). Those two are about *your* path; the one this page is
 about is always the SDK's own lookup.
+
+## The older message: "Claude Code native binary not found at …-musl/claude"
+
+If your error names a path ending in `claude-agent-sdk-linux-x64-musl/claude` (or `-arm64-musl`) and the
+file **is there** when you `ls` it, you are on an older 0.2.x SDK and hitting
+[anthropics/claude-agent-sdk-typescript#296](https://github.com/anthropics/claude-agent-sdk-typescript/issues/296)
+(reported on 0.2.114 to 0.2.140, closed 16 July 2026):
+
+```
+Claude Code native binary not found at .../claude-agent-sdk-linux-x64-musl/claude. Please ensure Claude Code is installed via native installer or specify a valid path with options.pathToClaudeCodeExecutable.
+```
+
+Those versions tried the `-musl` package **before** the glibc one on every Linux, and only checked that the
+path resolved. When both packages were installed (pnpm, and npm too, see below), a glibc host picked the musl
+binary, which cannot start without `/lib/ld-musl-*`; the spawn failure was then reported as "not found".
+
+What 0.3.300 does instead, read in `sdk.mjs`:
+
+- the musl package goes first **only** when `glibcVersionRuntime` is missing; on glibc the order is
+  `-linux-x64`, then `-linux-x64-musl`;
+- when a binary exists but cannot be spawned, the message is now
+  `Claude Code native binary at <path> exists but failed to launch. This usually means the binary does not match this system's libc`;
+  "not found at" is kept for a path that really does not exist.
+
+Fix for the old case: upgrade the SDK. If you cannot, pass `pathToClaudeCodeExecutable` pointing at the
+glibc binary (`node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude`), or delete the `-musl` package
+directory after install.
 
 ## A side effect worth knowing: npm installs the musl binary on glibc too
 
