@@ -167,6 +167,7 @@ If your run is waiting on a prompt rather than being denied, read
 - [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](./sdk-max-buffer-size)
 - [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
+- [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
 
 ---
 

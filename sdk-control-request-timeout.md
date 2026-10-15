@@ -178,6 +178,7 @@ If case 1 or a hung hook is the cause, a longer timer only makes the failure slo
 - [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
 - [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](./sdk-max-buffer-size)
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
+- [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
 
 ---
 
