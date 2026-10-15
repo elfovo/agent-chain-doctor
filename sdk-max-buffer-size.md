@@ -177,6 +177,8 @@ instead, see
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 - [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
 - [`claude -p` fails with "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](./extra-inputs-not-permitted)
+- [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
+- [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
 
 ---
 

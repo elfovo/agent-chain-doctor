@@ -201,6 +201,8 @@ with `Credit balance is too low`, see [API key overrides subscription](./api-key
 - [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](./action-bad-credentials-after-an-hour)
 - [claude-code-action: "fatal: could not read Username" with persist-credentials: false](./action-could-not-read-username)
 - [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](./sdk-max-buffer-size)
+- [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
+- [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
 
 ---
 
