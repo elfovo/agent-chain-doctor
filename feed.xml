@@ -5,7 +5,7 @@
   <link href="https://elfovo.github.io/agent-chain-doctor/"/>
   <link rel="self" href="https://elfovo.github.io/agent-chain-doctor/feed.xml"/>
   <id>https://elfovo.github.io/agent-chain-doctor/</id>
-  <updated>2026-10-14T03:57:18Z</updated>
+  <updated>2026-10-16T15:12:35Z</updated>
   <author><name>agent-chain-doctor</name></author>
   <generator>scripts/generer-flux.sh</generator>
   <entry>
@@ -273,5 +273,33 @@
     <id>https://elfovo.github.io/agent-chain-doctor/usage-limit.html</id>
     <updated>2026-10-14T03:57:18Z</updated>
     <summary>Unattended claude -p stops on “5-hour limit reached” or “Claude usage limit reached”. Detect it from the output, retry after the reset, resume the session.</summary>
+  </entry>
+  <entry>
+    <title>Claude Agent SDK (Python): &quot;Control request timeout: initialize&quot; — the CLI never answered the handshake | agent-chain-doctor</title>
+    <link href="https://elfovo.github.io/agent-chain-doctor/sdk-control-request-timeout.html"/>
+    <id>https://elfovo.github.io/agent-chain-doctor/sdk-control-request-timeout.html</id>
+    <updated>2026-10-16T15:12:35Z</updated>
+    <summary>&quot;Control request timeout: initialize&quot; means the Claude Code CLI subprocess was started but did not answer the SDK&apos;s first control request within 60 seconds. Read in claude-agent-sdk 0.2.167 and reproduced against fake CLIs: a CLI that exits with code 0, or stays alive without answering, gives this exact error after 60 s; a CLI that exits non-zero fails at once. How to tell which one you have, and the one env var that can only raise the limit.</summary>
+  </entry>
+  <entry>
+    <title>Claude Agent SDK (TypeScript): &quot;Native CLI binary for linux-x64 not found&quot; when you never used --omit=optional | agent-chain-doctor</title>
+    <link href="https://elfovo.github.io/agent-chain-doctor/sdk-native-binary-not-found.html"/>
+    <id>https://elfovo.github.io/agent-chain-doctor/sdk-native-binary-not-found.html</id>
+    <updated>2026-10-16T15:12:35Z</updated>
+    <summary>&quot;Native CLI binary for &lt;platform&gt;-&lt;arch&gt; not found&quot; (and the older &quot;Claude Code native binary not found at ...-musl/claude&quot;, issue #296, a musl binary picked on glibc) both mean the SDK did not get a runnable per-platform package (@anthropic-ai/claude-agent-sdk-linux-x64 and friends) from where its own code sits. Read in @anthropic-ai/claude-agent-sdk 0.3.300 and reproduced three ways: --omit=optional, a node_modules built on a Mac and copied into a Linux container, and an esbuild bundle deployed without node_modules. The fix for each, and why npm installs a 249 MB musl binary you will never run.</summary>
+  </entry>
+  <entry>
+    <title>Claude Agent SDK (Python): &quot;ProcessTransport is not ready for writing&quot; and &quot;Cannot write to terminated process&quot; — which write failed, and why | agent-chain-doctor</title>
+    <link href="https://elfovo.github.io/agent-chain-doctor/sdk-process-transport-not-ready.html"/>
+    <id>https://elfovo.github.io/agent-chain-doctor/sdk-process-transport-not-ready.html</id>
+    <updated>2026-10-16T15:12:35Z</updated>
+    <summary>CLIConnectionError: &quot;ProcessTransport is not ready for writing&quot;, &quot;Cannot write to terminated process (exit code: N)&quot; and &quot;Not connected. Call connect() first.&quot; are three guards on the same write() in claude-agent-sdk. Read in 0.2.168 and reproduced against a fake CLI: which one you get tells you whether stdin was closed by the SDK, the CLI process died, or you wrote after disconnect — and why the first one often appears only as &quot;Task exception was never retrieved&quot; in the log while your loop finishes normally.</summary>
+  </entry>
+  <entry>
+    <title>Claude Code: &quot;This shell -c script runs rm and could not be checked&quot; in bypass mode — why `claude -p` now stops, and how to get past it | agent-chain-doctor</title>
+    <link href="https://elfovo.github.io/agent-chain-doctor/shell-c-rm-could-not-be-checked.html"/>
+    <id>https://elfovo.github.io/agent-chain-doctor/shell-c-rm-could-not-be-checked.html</id>
+    <updated>2026-10-16T15:12:35Z</updated>
+    <summary>Since Claude Code 2.1.288, a Bash command that wraps a script in bash -c / sh -c can stop with &quot;This command passes a shell -c script that runs rm, and Claude Code could not check the script for dangerous removals&quot; — even under --dangerously-skip-permissions, even when the script has no rm. Read in the 2.1.287, 2.1.288 and 2.1.301 binaries: when it appeared, why no allow rule or auto mode can approve it, why a headless run denies it after 2 minutes, what 2.1.299 fixed, and the undocumented switch.</summary>
   </entry>
 </feed>
