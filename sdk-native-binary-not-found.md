@@ -192,6 +192,7 @@ cause 3.
 - [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](./sdk-max-buffer-size)
 - [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
 - [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
+- [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
 
 ---
 
