@@ -855,6 +855,7 @@ Ask in the issue if your case differs.
 - [#10](https://github.com/elfovo/agent-chain-doctor/issues/10) "5-hour limit reached" overnight — how to resume after the reset
 - [#11](https://github.com/elfovo/agent-chain-doctor/issues/11) MCP tools missing or "still connecting" in `claude -p` under cron or CI
 - [#12](https://github.com/elfovo/agent-chain-doctor/issues/12) Scheduled task replies "What would you like to work on?" instead of doing the work
+- [#13](https://github.com/elfovo/agent-chain-doctor/issues/13) "This shell -c script runs rm and could not be checked" in bypass mode / `claude -p`
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
