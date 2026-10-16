@@ -68,6 +68,27 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 
 **`--dangerously-skip-permissions cannot be used with root/sudo privileges` under cron, Docker or CI?** See [how to run it as a non-root user](https://elfovo.github.io/agent-chain-doctor/root-skip-permissions).
 
+**More error messages, one guide each** (Claude Code GitHub Action, Agent SDK, MCP registry, scheduling):
+
+- [claude-code-action: "HttpError: Bad credentials" after an hour — the app token expired](https://elfovo.github.io/agent-chain-doctor/action-bad-credentials-after-an-hour)
+- [claude-code-action: "fatal: could not read Username for 'https://github.com'" with persist-credentials: false](https://elfovo.github.io/agent-chain-doctor/action-could-not-read-username)
+- [claude-code-action: "SDK execution error" / "Claude Code process exited with code 1" — find the real error](https://elfovo.github.io/agent-chain-doctor/action-sdk-execution-error)
+- [claude-code-action: "Workflow validation failed" — the run is green and Claude did nothing](https://elfovo.github.io/agent-chain-doctor/action-skipped-green)
+- [claude-code-action: "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable" or "App token exchange failed: 401"](https://elfovo.github.io/agent-chain-doctor/actions-id-token)
+- [claude -p says "Credit balance is too low" or "This organization has been disabled" on a Pro/Max plan](https://elfovo.github.io/agent-chain-doctor/api-key-overrides-subscription)
+- [The "pick an odd minute" GitHub Actions cron fix doesn't work — 16 nights measured at minute 37](https://elfovo.github.io/agent-chain-doctor/cron-odd-minute-myth)
+- [Claude Code "API Error: 400 ... Extra inputs are not permitted" — the field name tells you the cause](https://elfovo.github.io/agent-chain-doctor/extra-inputs-not-permitted)
+- [Routine skipped scheduled run without any history record: find out fast](https://elfovo.github.io/agent-chain-doctor/handbook-missed-runs)
+- [claude-code-action: "exceeding the configured maximum of" — the --max-turns post-check](https://elfovo.github.io/agent-chain-doctor/max-turns-exceeded)
+- [mcp-publisher publish fails: "server returned status 400" or "registry validation failed for package 0"](https://elfovo.github.io/agent-chain-doctor/mcp-registry-publish-400)
+- [Claude Code fails under cron, CI or Docker: "Raw mode is not supported" / "can't read the keyboard here"](https://elfovo.github.io/agent-chain-doctor/raw-mode-stdin)
+- [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](https://elfovo.github.io/agent-chain-doctor/sdk-control-request-timeout)
+- [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](https://elfovo.github.io/agent-chain-doctor/sdk-max-buffer-size)
+- [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](https://elfovo.github.io/agent-chain-doctor/sdk-native-binary-not-found)
+- [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" and "Cannot write to terminated process" — which write failed, and why](https://elfovo.github.io/agent-chain-doctor/sdk-process-transport-not-ready)
+- [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops, and how to get past it](https://elfovo.github.io/agent-chain-doctor/shell-c-rm-could-not-be-checked)
+- [claude-code-action: "Unsupported event type: push" — run Claude after a merge](https://elfovo.github.io/agent-chain-doctor/unsupported-event-type-push)
+
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
 afterwards with `rm`. (`git clone` works too; the executable bit is in the index.) It runs on the
 stock macOS `/bin/bash` — bash 3.2 — and on any later bash.
