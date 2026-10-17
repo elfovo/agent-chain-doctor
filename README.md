@@ -87,6 +87,7 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](https://elfovo.github.io/agent-chain-doctor/sdk-native-binary-not-found)
 - [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" and "Cannot write to terminated process" — which write failed, and why](https://elfovo.github.io/agent-chain-doctor/sdk-process-transport-not-ready)
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops, and how to get past it](https://elfovo.github.io/agent-chain-doctor/shell-c-rm-could-not-be-checked)
+- [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks, and what actually gets past it](https://elfovo.github.io/agent-chain-doctor/sensitive-file-permission)
 - [claude-code-action: "Unsupported event type: push" — run Claude after a merge](https://elfovo.github.io/agent-chain-doctor/unsupported-event-type-push)
 
 One file. Nothing is added to your system, no package manager is involved, and you can delete it
