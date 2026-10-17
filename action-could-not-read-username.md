@@ -171,6 +171,7 @@ run, the app token expired: see [Bad credentials after an hour](./action-bad-cre
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
 - [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
+- [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 
 ---
 

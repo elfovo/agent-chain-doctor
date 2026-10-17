@@ -150,6 +150,7 @@ options = ClaudeAgentOptions(stderr=lambda line: print("CLI:", line))
 - [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](./sdk-native-binary-not-found)
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
+- [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 
 ---
 

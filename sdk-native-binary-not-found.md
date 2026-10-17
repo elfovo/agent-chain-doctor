@@ -193,6 +193,7 @@ cause 3.
 - [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](./sdk-control-request-timeout)
 - [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
+- [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 
 ---
 
