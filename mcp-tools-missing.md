@@ -1,6 +1,6 @@
 ---
 title: "MCP tools not available in claude -p (--print) under cron or CI"
-description: "MCP servers show Connected interactively but their tools are missing in a scheduled claude -p run. Four known causes, a pre-flight check, a loud guard."
+description: "MCP servers show Connected interactively but their tools are missing in a scheduled claude -p run. Five known causes, a pre-flight check, a loud guard."
 ---
 
 # Your scheduled run can't see its MCP tools
@@ -30,7 +30,7 @@ The specific bugs get fixed and come back as regressions (#36587 broke at 2.1.79
 the last one is closed as not planned. Whatever version you run, an unattended job should **check**
 that its tools are there rather than assume it.
 
-## 1. Find which of the four causes you have
+## 1. Find which of the five causes you have
 
 | cause | tell-tale sign |
 |---|---|
@@ -38,6 +38,9 @@ that its tools are there rather than assume it.
 | **startup race**: remote servers still connecting when the run starts | intermittent — same command fails 5 times, then works once (#63350); `MCP_TIMEOUT=60000` did not help there |
 | **cron environment**: different `HOME`, working directory or `PATH` | a *stdio* server (`npx …`, `uvx …`, `node …`) is missing; works when you run the script by hand |
 | **project servers not approved**: `.mcp.json` servers need a one-time approval nobody gives unattended | only the servers from the project's `.mcp.json` are missing |
+| **stale MCP child** from a previous run (launchd/systemd timers): a half-dead stdio server process left behind, so the next run starts against it | interactive `claude mcp list` is fine, but the same check run *from the job's own environment* shows `failed` or an empty list |
+
+The fifth cause was contributed by a reader in [the FAQ issue](https://github.com/elfovo/agent-chain-doctor/issues/11#issuecomment-6205414977) — thank you; another one is welcome there.
 
 Run the check *from the scheduler itself*, not from your terminal: add one line to the job and
 read its log the next morning.
@@ -51,6 +54,11 @@ read its log the next morning.
 - **cron environment** — `cd` into the project explicitly, and give stdio servers an **absolute**
   command path (`/opt/homebrew/bin/npx`, `/usr/local/bin/node`) instead of relying on `PATH`.
   The general case is in [works in the terminal, fails under cron or launchd](./terminal-vs-cron).
+  On macOS launchd, `npx`/`uvx` usually live under `/opt/homebrew/bin`, which the interactive zsh
+  `PATH` has and the launchd job does not: put that directory in the job's `EnvironmentVariables`.
+- **stale MCP child** — kill leftover server processes before the run (a systemd `ExecStartPre=` line,
+  or a `pkill -f` on the server command at the top of the launchd script), and keep the loud guard
+  below so a missing tool still fails the job.
 - **pin the server list** — pass the servers the job needs in a file you control:
   `claude -p --mcp-config ./job-mcp.json --strict-mcp-config "…"`. `--strict-mcp-config` ignores every
   other MCP configuration, so the job no longer depends on what is in `~/.claude.json` this week.
