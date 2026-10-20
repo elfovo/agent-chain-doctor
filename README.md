@@ -873,6 +873,13 @@ Ask in the issue if your case differs.
 - [#27](https://github.com/elfovo/agent-chain-doctor/issues/27) "Raw mode is not supported on the current process.stdin" under cron, CI or Docker
 - [#28](https://github.com/elfovo/agent-chain-doctor/issues/28) Claude Agent SDK (TypeScript) "Native CLI binary for linux-x64 not found"
 - [#29](https://github.com/elfovo/agent-chain-doctor/issues/29) Claude Agent SDK (Python) "ProcessTransport is not ready for writing"
+- [#30](https://github.com/elfovo/agent-chain-doctor/issues/30) claude-code-action "Unsupported event type: push" — run Claude after a merge
+- [#31](https://github.com/elfovo/agent-chain-doctor/issues/31) GitHub Actions scheduled workflow runs late — the "pick an odd minute" cron fix measured
+- [#32](https://github.com/elfovo/agent-chain-doctor/issues/32) Scheduled task `lastRunAt` updates but no session is spawned
+- [#33](https://github.com/elfovo/agent-chain-doctor/issues/33) Cron, launchd or systemd job didn't run, no error — where each scheduler says why
+- [#34](https://github.com/elfovo/agent-chain-doctor/issues/34) Cowork "Failed to run scheduled task. You can try again." / every fire "Skipped"
+- [#35](https://github.com/elfovo/agent-chain-doctor/issues/35) Claude Code scheduled task stuck "Running" forever, no error
+- [#36](https://github.com/elfovo/agent-chain-doctor/issues/36) Scheduled task burns tokens on runs with nothing to do
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
