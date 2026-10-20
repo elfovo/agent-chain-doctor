@@ -865,6 +865,14 @@ Ask in the issue if your case differs.
 - [#19](https://github.com/elfovo/agent-chain-doctor/issues/19) claude-code-action "HttpError: Bad credentials" after an hour
 - [#20](https://github.com/elfovo/agent-chain-doctor/issues/20) claude-code-action "exceeding the configured maximum of" turns
 - [#21](https://github.com/elfovo/agent-chain-doctor/issues/21) Claude Agent SDK (Python) "Control request timeout: initialize"
+- [#22](https://github.com/elfovo/agent-chain-doctor/issues/22) claude-code-action "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable" / "App token exchange failed: 401"
+- [#23](https://github.com/elfovo/agent-chain-doctor/issues/23) claude-code-action "fatal: could not read Username for 'https://github.com'" with `persist-credentials: false`
+- [#24](https://github.com/elfovo/agent-chain-doctor/issues/24) `claude -p` "Credit balance is too low" / "This organization has been disabled" on a Pro or Max plan
+- [#25](https://github.com/elfovo/agent-chain-doctor/issues/25) "auto mode classifier unavailable" / classifier blocks in `claude -p`
+- [#26](https://github.com/elfovo/agent-chain-doctor/issues/26) `mcp-publisher publish`: "server returned status 400" / "registry validation failed for package 0"
+- [#27](https://github.com/elfovo/agent-chain-doctor/issues/27) "Raw mode is not supported on the current process.stdin" under cron, CI or Docker
+- [#28](https://github.com/elfovo/agent-chain-doctor/issues/28) Claude Agent SDK (TypeScript) "Native CLI binary for linux-x64 not found"
+- [#29](https://github.com/elfovo/agent-chain-doctor/issues/29) Claude Agent SDK (Python) "ProcessTransport is not ready for writing"
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
