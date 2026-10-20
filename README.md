@@ -857,6 +857,14 @@ Ask in the issue if your case differs.
 - [#11](https://github.com/elfovo/agent-chain-doctor/issues/11) MCP tools missing or "still connecting" in `claude -p` under cron or CI
 - [#12](https://github.com/elfovo/agent-chain-doctor/issues/12) Scheduled task replies "What would you like to work on?" instead of doing the work
 - [#13](https://github.com/elfovo/agent-chain-doctor/issues/13) "This shell -c script runs rm and could not be checked" in bypass mode / `claude -p`
+- [#14](https://github.com/elfovo/agent-chain-doctor/issues/14) "Claude requested permissions to edit … which is a sensitive file", even with `--dangerously-skip-permissions`
+- [#15](https://github.com/elfovo/agent-chain-doctor/issues/15) `claude -p` "API Error: 400 … Extra inputs are not permitted"
+- [#16](https://github.com/elfovo/agent-chain-doctor/issues/16) claude-code-action "SDK execution error" / "Claude Code process exited with code 1"
+- [#17](https://github.com/elfovo/agent-chain-doctor/issues/17) claude-code-action "Workflow validation failed": green check, Claude did nothing
+- [#18](https://github.com/elfovo/agent-chain-doctor/issues/18) Claude Agent SDK (Python) "JSON message exceeded maximum buffer size of 1048576 bytes"
+- [#19](https://github.com/elfovo/agent-chain-doctor/issues/19) claude-code-action "HttpError: Bad credentials" after an hour
+- [#20](https://github.com/elfovo/agent-chain-doctor/issues/20) claude-code-action "exceeding the configured maximum of" turns
+- [#21](https://github.com/elfovo/agent-chain-doctor/issues/21) Claude Agent SDK (Python) "Control request timeout: initialize"
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
