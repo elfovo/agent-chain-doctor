@@ -1,0 +1,26 @@
+# Publie le paquet npm `agent-chain-doctor` (npx agent-chain-doctor) depuis GitHub Actions, avec provenance.
+# PREALABLE UNIQUE (titulaire du compte npm) : creer un jeton "Granular access token" limite a la publication,
+# puis l'ajouter comme secret NPM_TOKEN du depot (Settings -> Secrets -> Actions). Apres la premiere
+# publication, on peut passer en trusted publishing (OIDC) dans les reglages du paquet sur npmjs.com et
+# supprimer le secret.
+name: publish-npm
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: The package ships the script and runs under npx
+        run: bash tests/test-npm-pack.sh
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,26 @@
+# Publie agent-chain-doctor-mcp sur PyPI par OIDC (trusted publishing) : aucun jeton, aucun secret.
+# PREALABLE UNIQUE (titulaire d'un compte PyPI, ~2 min) : pypi.org -> Your account -> Publishing ->
+#   "Add a new pending publisher" : PyPI project name = agent-chain-doctor-mcp, Owner = elfovo,
+#   Repository = agent-chain-doctor, Workflow = publish-pypi.yml, Environment = pypi.
+# Ensuite : lancer le workflow (workflow_dispatch). Le premier passage cree le projet sur PyPI.
+name: publish-pypi
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the wheel in a clean venv (both commands)
+        run: bash mcp/pypi/test_pypi.sh
+      - name: Build the wheel from the repo's single sources
+        run: bash mcp/pypi/build.sh dist
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
