@@ -1,5 +1,7 @@
 # agent-chain-doctor-mcp
 
+<!-- mcp-name: io.github.elfovo/agent-chain-doctor-mcp -->
+
 Read-only diagnosis of a scheduled AI-agent chain (Claude Code routine, `claude -p` under cron,
 launchd, systemd or GitHub Actions): is it still running, and what will stop it without saying so?
 

@@ -25,4 +25,7 @@ echo "$out" | grep -q '"id": 1.*"serverInfo"' || { echo "FAIL mcp initialize"; f
 echo "$out" | grep -q '"id": 2.*diagnose_scheduled_agent' || { echo "FAIL mcp tools/list"; fail=1; }
 echo "$out" | grep -q "\"id\": 3.*agent-chain-doctor $sv" || { echo "FAIL mcp tools/call uses the bundled script"; fail=1; }
 unzip -l "$whl" | grep -q 'agent_chain_doctor_mcp/NOTICE' || { echo "FAIL wheel ships NOTICE"; fail=1; }
+# The MCP registry verifies a PyPI package by finding "mcp-name: <server.json name>" in its description.
+name=$(python3 -c "import json;print(json.load(open('$here/../../server.json'))['name'])")
+unzip -p "$whl" '*.dist-info/METADATA' | grep -q "mcp-name: $name" || { echo "FAIL METADATA lacks mcp-name: $name"; fail=1; }
 [ $fail = 0 ] && echo "PASS pypi wheel ($(basename "$whl"))"; exit $fail
