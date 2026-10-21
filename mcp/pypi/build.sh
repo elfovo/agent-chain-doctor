@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh OUT_DIR — stage the package from the repo's single sources, then build sdist + wheel.
+# build.sh OUT_DIR — stage the package from the repo's single sources, then build the wheel (no sdist).
 set -eu
 here=$(cd "$(dirname "$0")" && pwd); root=$(cd "$here/../.." && pwd)
 out=$(mkdir -p "${1:-$here/dist}" && cd "${1:-$here/dist}" && pwd)

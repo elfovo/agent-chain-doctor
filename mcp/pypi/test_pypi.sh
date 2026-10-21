@@ -7,6 +7,9 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0
+# license = "MIT" (SPDX string) is refused by setuptools < 77; isolation hides it by fetching a newer one (QA S491).
+grep -q '^license = "' "$here/pyproject.toml" && ! grep -qE '"setuptools>=(7[7-9]|[89][0-9])' "$here/pyproject.toml" \
+  && { echo "FAIL pyproject: SPDX license needs setuptools>=77"; exit 1; }
 [ -x "$here/build.sh" ] || { echo "FAIL build.sh missing"; exit 1; }
 "$here/build.sh" "$tmp/dist" >/dev/null 2>&1 || { echo "FAIL build"; exit 1; }
 whl=$(ls "$tmp"/dist/*.whl 2>/dev/null | head -1)
