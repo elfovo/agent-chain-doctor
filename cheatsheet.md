@@ -106,7 +106,7 @@ to be told when it can be bought.
 ## Other things that stop unattended runs
 
 - Login expired overnight ("Not logged in", "OAuth session expired") → [auth expired](./auth-expired)
-- "5-hour limit reached" with nobody to type continue → [usage limit](./usage-limit)
+- "5-hour limit reached", "You've hit your weekly limit" or `usage_limit_reached` (JSON) with nobody to type continue → [usage limit](./usage-limit)
 - MCP tools missing in the scheduled run → [MCP tools missing](./mcp-tools-missing)
 - Auto mode blocks the run → [auto mode blocks](./auto-mode-blocks)
 - The task asks a question instead of working → [asks instead of working](./asks-instead-of-working)

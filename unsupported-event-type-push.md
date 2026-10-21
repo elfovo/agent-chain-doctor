@@ -85,11 +85,16 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowedTools "Bash(git show:*),Bash(git diff:*)"'
           prompt: |
             Commit ${{ github.event.workflow_run.head_sha }} just landed on
             ${{ github.event.workflow_run.head_branch }}. Run
             `git show --stat ${{ github.event.workflow_run.head_sha }}` and summarise the risk.
 ```
+
+With a `prompt:` the action runs in agent mode: only the tools listed in `claude_args` are allowed
+(`src/modes/agent/index.ts`), so without the `--allowedTools` line the `git show` call is refused. The
+summary lands in the job log; allow e.g. `Bash(gh pr comment:*)` if you want it posted.
 
 `github.event.workflow_run` carries `head_sha`, `head_branch`, `conclusion` and the actor, which
 is most of what a `push` payload would have given you. Gate on success if you only want green

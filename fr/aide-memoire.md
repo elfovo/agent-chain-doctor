@@ -91,7 +91,7 @@ extras/missed-run-check --record end "$RUN_ID" ok
 ## Autres causes d'arrêt sans surveillance
 
 - Connexion expirée dans la nuit (« Not logged in », « OAuth session expired ») → [connexion expirée](./auth-expired)
-- « 5-hour limit reached » sans personne pour taper continue → [limite d'usage](./usage-limit)
+- « 5-hour limit reached », « You've hit your weekly limit » ou `usage_limit_reached` (JSON) sans personne pour taper continue → [limite d'usage](./usage-limit)
 - Outils MCP absents du run planifié → [outils MCP manquants](../mcp-tools-missing)
 - Le mode auto bloque le run → [mode auto bloquant](../auto-mode-blocks)
 - La tâche pose une question au lieu de travailler → [question au lieu du travail](../asks-instead-of-working)

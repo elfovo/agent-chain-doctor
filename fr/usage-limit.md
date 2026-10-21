@@ -48,7 +48,12 @@ mkdir -p "$(dirname "$LOG")"
 timeout -k 60 45m claude -p "$(cat prompt.txt)" < /dev/null > "$LOG" 2>&1
 status=$?
 
-if grep -qiE 'usage limit reached|limit reached.{0,5}resets|session limit' "$LOG"; then
+LIMIT='usage[ _]limit[ _]reached|limit reached.{0,5}resets|session limit|hit your [a-z0-9 -]*limit'
+# Sortie non nulle sans rien d'utile sur stdout : en 2.1.303, le message n'était que dans la transcription (#103820).
+# Ne lire que les erreurs d'API (pas les prompts ni la sortie des outils), sans grep -q : avec pipefail, -q peut tuer tail (SIGPIPE).
+NEWEST=$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)
+if grep -qiE "$LIMIT" "$LOG" ||
+   { [ "$status" -ne 0 ] && [ -n "$NEWEST" ] && tail -n 20 "$NEWEST" | grep -F '"isApiErrorMessage":true' | grep -iE "$LIMIT" >/dev/null; }; then
   # N'analysez pas l'heure de réinitialisation : son format a déjà changé ("resets 3pm",
   # "will reset at 2pm (America/New_York)"). Attendez plutôt une fenêtre fixe et sûre.
   date -u -d '+5 hours' +%s > "$STATE" 2>/dev/null || echo $(( $(date +%s) + 18000 )) > "$STATE"
@@ -59,7 +64,16 @@ exit "$status"
 ```
 
 - Gardez un motif large et **insensible à la casse** ; journalisez chaque ligne qui a correspondu pour remarquer quand
-  la formulation change et que le grep ne se déclenche plus.
+  la formulation change et que le grep ne se déclenche plus. Elle a changé : `--output-format json` écrit
+  `"api_error":"usage_limit_reached"` (avec des tirets bas) et étiquette le résultat `"subtype":"success"` avec
+  `"is_error":true` ([#103807](https://github.com/anthropics/claude-code/issues/103807)), et une limite hebdomadaire
+  s'écrit `You've hit your weekly limit · resets 11am (UTC)`. Un motif écrit pour l'ancienne formulation ne reconnaît
+  ni l'un ni l'autre.
+- **Le message peut ne pas être sur stdout du tout.** En 2.1.303, une limite hebdomadaire a fait sortir la tâche en 1
+  sans ligne `result`, et le message ne figurait que dans la transcription de la session
+  ([#103820](https://github.com/anthropics/claude-code/issues/103820)). C'est pourquoi le script lit la fin de la
+  transcription la plus récente quand le code de sortie n'est pas nul. Si une autre session peut écrire une
+  transcription au même moment, faites pointer `NEWEST` sur le dossier de votre projet.
 - Utilisez un code de sortie distinct (75 ici) pour que vos alertes distinguent « limite, va réessayer » de
   « cassé, regardez-moi ». Une tâche qui sort discrètement en 0 sur une limite ressemble à une tâche qui a fait son travail.
 - Gardez `timeout` et `< /dev/null` : une exécution bloquée sur une invite à laquelle personne ne répond peut rester figée

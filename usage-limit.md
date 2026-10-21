@@ -47,7 +47,12 @@ mkdir -p "$(dirname "$LOG")"
 timeout -k 60 45m claude -p "$(cat prompt.txt)" < /dev/null > "$LOG" 2>&1
 status=$?
 
-if grep -qiE 'usage limit reached|limit reached.{0,5}resets|session limit' "$LOG"; then
+LIMIT='usage[ _]limit[ _]reached|limit reached.{0,5}resets|session limit|hit your [a-z0-9 -]*limit'
+# Exit non-zero with nothing useful on stdout: on 2.1.303 the wording was only in the transcript (#103820).
+# Read only API-error entries (not prompts or tool output), without grep -q: under pipefail, -q can SIGPIPE tail.
+NEWEST=$(ls -t "$HOME"/.claude/projects/*/*.jsonl 2>/dev/null | head -1)
+if grep -qiE "$LIMIT" "$LOG" ||
+   { [ "$status" -ne 0 ] && [ -n "$NEWEST" ] && tail -n 20 "$NEWEST" | grep -F '"isApiErrorMessage":true' | grep -iE "$LIMIT" >/dev/null; }; then
   # Do not parse the reset time: its format has changed before ("resets 3pm",
   # "will reset at 2pm (America/New_York)"). Back off a fixed, safe window instead.
   date -u -d '+5 hours' +%s > "$STATE" 2>/dev/null || echo $(( $(date +%s) + 18000 )) > "$STATE"
@@ -58,7 +63,16 @@ exit "$status"
 ```
 
 - Keep the pattern loose and **case-insensitive**; log every line it matched so you notice when
-  the wording changes and the grep stops firing.
+  the wording changes and the grep stops firing. It has changed: `--output-format json` writes
+  `"api_error":"usage_limit_reached"` (underscores) and labels the result `"subtype":"success"` with
+  `"is_error":true` ([#103807](https://github.com/anthropics/claude-code/issues/103807)), and a weekly
+  limit reads `You've hit your weekly limit · resets 11am (UTC)`. A pattern written for the older
+  wording matches neither.
+- **The message may not be on stdout at all.** On 2.1.303 a weekly-limit run exited 1 with no
+  `result` line, and the wording was only in the session transcript
+  ([#103820](https://github.com/anthropics/claude-code/issues/103820)). That is why the script reads
+  the tail of the newest transcript when the exit status is non-zero. If another session can
+  write a transcript at the same time, point `NEWEST` at your project's folder.
 - Use a distinct exit code (75 here) so your alerting can tell "limit, will retry" from
   "broken, look at me". A job that quietly exits 0 on a limit looks like a job that did its work.
 - Keep `timeout` and `< /dev/null`: a run blocked on a prompt nobody answers can hang
