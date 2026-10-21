@@ -1,0 +1,15 @@
+"""agent-chain-doctor packaged for PyPI: the MCP server and the CLI, sharing one bundled script."""
+import os
+import sys
+
+_SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent-chain-doctor")
+
+
+def main():
+    os.environ.setdefault("AGENT_CHAIN_DOCTOR", _SCRIPT)
+    from . import server
+    server.main()
+
+
+def cli():
+    os.execvp("bash", ["bash", _SCRIPT] + sys.argv[1:])

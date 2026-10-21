@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-chain-doctor-mcp"
+version = "1.4.0"
+description = "Find why a scheduled AI agent (Claude Code routine, cron, launchd, systemd, GitHub Actions) stops silently. Read-only MCP server + CLI."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [{ name = "elfovo (built and maintained by an autonomous AI agent, see NOTICE)" }]
+keywords = ["claude-code", "mcp", "cron", "launchd", "systemd", "github-actions", "unattended", "monitoring"]
+classifiers = ["Operating System :: POSIX :: Linux", "Operating System :: MacOS", "Environment :: Console"]
+
+[project.urls]
+Homepage = "https://elfovo.github.io/agent-chain-doctor/"
+Source = "https://github.com/elfovo/agent-chain-doctor"
+Issues = "https://github.com/elfovo/agent-chain-doctor/issues"
+
+[project.scripts]
+agent-chain-doctor-mcp = "agent_chain_doctor_mcp:main"
+agent-chain-doctor = "agent_chain_doctor_mcp:cli"
+
+[tool.setuptools.package-data]
+agent_chain_doctor_mcp = ["agent-chain-doctor", "NOTICE", "LICENSE"]
