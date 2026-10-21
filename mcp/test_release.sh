@@ -16,6 +16,13 @@ ver() { python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"
 [ -x "$here/release.sh" ] || { echo "FAIL: mcp/release.sh missing or not executable"; exit 1; }
 
 copy
+# Start the copy from a fixed 1.0.0, so the bumps below do not depend on the released version
+# (the 1.4.0 release turned this test red in publish-mcp.yml: "1.0.1 is not above 1.4.0").
+python3 - "$tmp/r" <<'EOF'
+import json,sys
+for p in ("server.json","mcp/manifest.json"):
+    f=f"{sys.argv[1]}/{p}"; d=json.load(open(f)); d["version"]="1.0.0"; json.dump(d,open(f,"w"),indent=2)
+EOF
 # The case this exists for: the diagnostic changed, the pin is now stale, the bundle test is red.
 echo '# touched' >> "$tmp/r/agent-chain-doctor"
 bash "$tmp/r/mcp/test_mcpb.sh" >/dev/null 2>&1 && { echo "FAIL: setup, a modified script should break the pin"; fail=1; }
