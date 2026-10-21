@@ -3583,6 +3583,9 @@ unknown. UNKNOWN means unknown, not fine.
 
 This tool sees the parts of your chain that leave traces on disk. It does not see your
 agent's judgement, your prompt's contract, or anything it could not read.
+
+Free guides to the silent failures these checks look for, one per error message:
+https://elfovo.github.io/agent-chain-doctor/
 TAIL
 
 [ "$N_EXPOSED" -gt 0 ] && exit 1

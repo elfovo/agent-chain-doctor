@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 
-VERSION = "1.0.0"
+VERSION = "1.4.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.environ.get("AGENT_CHAIN_DOCTOR",
                         os.path.join(os.path.dirname(HERE), "agent-chain-doctor"))

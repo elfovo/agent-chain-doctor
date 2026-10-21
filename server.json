@@ -6,12 +6,12 @@
     "url": "https://github.com/elfovo/agent-chain-doctor",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.4.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/elfovo/agent-chain-doctor/releases/download/v1.0.0-mcp/agent-chain-doctor-mcp.mcpb",
-      "fileSha256": "e4ab824cf48ca4ab0208740403da2e706055e1b47481590947646dda60a8a41a",
+      "identifier": "https://github.com/elfovo/agent-chain-doctor/releases/download/v1.4.0-mcp/agent-chain-doctor-mcp.mcpb",
+      "fileSha256": "0642a8f4abb3d5e11a9b31a2dd6b1f3bdd5e2a84c52bfe820f96d7c06aaa013d",
       "transport": {
         "type": "stdio"
       }

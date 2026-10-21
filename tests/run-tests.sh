@@ -1143,6 +1143,13 @@ if [ -n "$n_said" ] && [ "$n_said" = "$n_cat" ]; then
   ok "T71b the closing sentence names the catalogue size, not a literal"
 else bad "T71b the closing sentence names the catalogue size, not a literal" \
   "the report says ${n_said:-<no such sentence>}, the tool defines $n_cat checks"; fi
+# T71g — the report ends by saying where each finding is explained. Someone who ran this through
+# `npx` has no README in front of them: the closing lines are the only place left to say that every
+# check has a free guide. The URL must be the one package.json declares as homepage, not a second copy.
+home=$(sed -nE 's/^  "homepage": "([^"]+)",?$/\1/p' "$(dirname "$DOCTOR")/package.json" 2>/dev/null)
+if [ -n "$home" ] && printf '%s\n' "$OUT" | tail -n 4 | grep -qF "$home"; then
+  ok "T71g the report closes on the guides URL ($home)"
+else bad "T71g the report closes on the guides URL" "homepage='${home:-<none>}', last lines: $(printf '%s\n' "$OUT" | tail -n 2 | tr '\n' ' ')"; fi
 # T71c — the other published count in this tool, guarded before it drifts rather than after.
 # Discovery prints a recognition score as "N/5", and the denominator is a literal sitting in
 # the printf while the numerator comes from counting greps in the same function. That is the

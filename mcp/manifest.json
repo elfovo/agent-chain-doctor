@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "agent-chain-doctor",
   "display_name": "agent-chain-doctor",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "Diagnose why a scheduled AI agent (cron, launchd, systemd, Claude Code routine) stops silently. 30 read-only checks.",
   "author": {"name": "elfovo", "url": "https://github.com/elfovo"},
   "repository": {"type": "git", "url": "https://github.com/elfovo/agent-chain-doctor"},
