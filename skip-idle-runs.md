@@ -43,6 +43,7 @@ if [ "$NOW" = "$(cat "$STATE" 2>/dev/null || true)" ]; then
   exit 0
 fi
 
+command -v timeout >/dev/null || timeout() { gtimeout "$@"; }  # macOS: brew install coreutils
 timeout -k 60 45m claude -p "New issue #$NOW on owner/repo: triage it." < /dev/null
 echo "$NOW" > "$STATE"   # only after a run that ended normally
 ```
@@ -62,6 +63,7 @@ and call Claude only when it fails:
 
 ```bash
 if ! ./refresh.sh > /tmp/refresh.log 2>&1; then
+  command -v timeout >/dev/null || timeout() { gtimeout "$@"; }  # macOS: brew install coreutils
   timeout -k 60 30m claude -p "refresh.sh failed. Log: $(tail -n 100 /tmp/refresh.log). Diagnose and fix." < /dev/null
 fi
 ```

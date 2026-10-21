@@ -105,6 +105,7 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 77   # EX_NOPERM: a configuration problem, retrying will not fix it
 fi
 
+command -v timeout >/dev/null || timeout() { gtimeout "$@"; }  # macOS: brew install coreutils
 timeout -k 60 30m claude -p --dangerously-skip-permissions "$(cat prompt.txt)" < /dev/null > "$LOG" 2>&1
 status=$?
 

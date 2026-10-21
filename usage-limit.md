@@ -44,6 +44,7 @@ LOG="$HOME/.cache/my-agent/last-run.log"
 STATE="$HOME/.cache/my-agent/limit-until"
 mkdir -p "$(dirname "$LOG")"
 
+command -v timeout >/dev/null || timeout() { gtimeout "$@"; }  # macOS: brew install coreutils
 timeout -k 60 45m claude -p "$(cat prompt.txt)" < /dev/null > "$LOG" 2>&1
 status=$?
 

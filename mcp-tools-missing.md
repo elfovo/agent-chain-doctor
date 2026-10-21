@@ -85,6 +85,7 @@ mkdir -p "$(dirname "$LOG")"
 GUARD='Before anything else: if any tool whose name starts with mcp__jira__ is not available to you,
 print exactly MCP-TOOLS-MISSING on its own line and stop without doing any other work.'
 
+command -v timeout >/dev/null || timeout() { gtimeout "$@"; }  # macOS: brew install coreutils
 timeout -k 60 30m claude -p "$GUARD
 
 $(cat prompt.txt)" < /dev/null > "$LOG" 2>&1
