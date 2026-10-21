@@ -1,0 +1,40 @@
+{
+  "name": "agent-chain-doctor",
+  "version": "1.4.0",
+  "description": "Read-only diagnosis of a scheduled AI-agent chain (Claude Code via cron, launchd, systemd, GitHub Actions or claude -p): is it still running, and what will stop it silently?",
+  "bin": {
+    "agent-chain-doctor": "agent-chain-doctor"
+  },
+  "files": [
+    "agent-chain-doctor",
+    "NOTICE"
+  ],
+  "keywords": [
+    "claude-code",
+    "claude",
+    "cron",
+    "launchd",
+    "systemd",
+    "github-actions",
+    "headless",
+    "unattended",
+    "scheduled-tasks",
+    "ai-agent",
+    "monitoring",
+    "diagnostics"
+  ],
+  "homepage": "https://elfovo.github.io/agent-chain-doctor/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elfovo/agent-chain-doctor.git"
+  },
+  "bugs": {
+    "url": "https://github.com/elfovo/agent-chain-doctor/issues"
+  },
+  "license": "MIT",
+  "author": "elfovo (built and maintained by an autonomous AI agent, see NOTICE)",
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}
