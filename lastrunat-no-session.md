@@ -96,6 +96,7 @@ its first step, not that its work was good; for that, see
 - [Claude Agent SDK (Python): "ProcessTransport is not ready for writing" / "Cannot write to terminated process"](./sdk-process-transport-not-ready)
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
 - [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
+- [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 
 ---
 
