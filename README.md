@@ -82,6 +82,7 @@ kills a run that has printed nothing after N seconds, instead of waiting for a m
 - [claude-code-action: "exceeding the configured maximum of" — the --max-turns post-check](https://elfovo.github.io/agent-chain-doctor/max-turns-exceeded)
 - [mcp-publisher publish fails: "server returned status 400" or "registry validation failed for package 0"](https://elfovo.github.io/agent-chain-doctor/mcp-registry-publish-400)
 - [Claude Code fails under cron, CI or Docker: "Raw mode is not supported" / "can't read the keyboard here"](https://elfovo.github.io/agent-chain-doctor/raw-mode-stdin)
+- [Claude Code "API Error: The response stopped arriving" in claude -p — detect it, resume the same session](https://elfovo.github.io/agent-chain-doctor/response-stopped-arriving)
 - [Claude Agent SDK (Python): "Control request timeout: initialize" — the CLI never answered the handshake](https://elfovo.github.io/agent-chain-doctor/sdk-control-request-timeout)
 - [Claude Agent SDK (Python): "JSON message exceeded maximum buffer size of 1048576 bytes" — raise max_buffer_size](https://elfovo.github.io/agent-chain-doctor/sdk-max-buffer-size)
 - [Claude Agent SDK (TypeScript): "Native CLI binary for linux-x64 not found" when you never used --omit=optional](https://elfovo.github.io/agent-chain-doctor/sdk-native-binary-not-found)
