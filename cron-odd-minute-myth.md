@@ -190,6 +190,7 @@ the next question is whether it had anything to do at all —
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Command(s) not in the allowed commands list" — the PR review never got its context](./gemini-command-not-in-allowed-list)
 - [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
+- [run-gemini-cli: "Gemini CLI stderr was not valid JSON" — where the real error is](./gemini-stderr-not-valid-json)
 
 ---
 

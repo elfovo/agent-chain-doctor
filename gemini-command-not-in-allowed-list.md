@@ -206,6 +206,7 @@ Again: this silences the error, it does not supply the PR number.
 - [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
+- [run-gemini-cli: "Gemini CLI stderr was not valid JSON" — where the real error is](./gemini-stderr-not-valid-json)
 
 ---
 
