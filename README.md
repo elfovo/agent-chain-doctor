@@ -886,9 +886,9 @@ Ask in the issue if your case differs.
 - [#39](https://github.com/elfovo/agent-chain-doctor/issues/39) "[structured-output-enforce] You MUST call the StructuredOutput tool"
 - [#40](https://github.com/elfovo/agent-chain-doctor/issues/40) Agent SDK (Python) leaves `claude` processes running after `break`
 - [#41](https://github.com/elfovo/agent-chain-doctor/issues/41) claude-code-action "Credit balance is too low" while the same key works with `claude -p`
-- [#42](https://github.com/elfovo/agent-chain-doctor/issues/42) run-gemini-cli "Command(s) not in the allowed commands list" — the PR context never reached the agent
-- [#43](https://github.com/elfovo/agent-chain-doctor/issues/43) run-gemini-cli "Error: [object Object]" / "See logs for more details"
-- [#44](https://github.com/elfovo/agent-chain-doctor/issues/44) run-gemini-cli "Gemini CLI stderr was not valid JSON" — where the real error is
+- [#42](https://github.com/elfovo/agent-chain-doctor/issues/42) "Command(s) not in the allowed commands list" (run-gemini-cli PR review) — the PR context never reached the agent
+- [#43](https://github.com/elfovo/agent-chain-doctor/issues/43) "Error: [object Object]" / "See logs for more details" (run-gemini-cli)
+- [#44](https://github.com/elfovo/agent-chain-doctor/issues/44) "Gemini CLI stderr was not valid JSON" (run-gemini-cli) — where the real error is
 - [#45](https://github.com/elfovo/agent-chain-doctor/issues/45) openai/codex-action v1.12 "The hosted runner lost communication with the server." — drop-sudo strips /run socket bits
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
