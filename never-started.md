@@ -37,6 +37,11 @@ pmset -g log | grep -E ' (Sleep|Wake|DarkWake) ' | tail -20
 - **`runs` did not move and the Mac was asleep**: `StartCalendarInterval` fires missed while
   asleep are run **once** at wake, not once per missed slot; if the Mac was shut down they are not
   run at all.
+- **It started, then the Mac fell asleep mid-run**: while it works, the Claude Code CLI holds
+  `caffeinate -i` (read in the 2.1.319 binary, macOS only). `-i` blocks *idle* sleep, not a closed
+  lid. On wake the stream is treated as broken and the run ends with
+  `Your computer went to sleep mid-response. The response above may be incomplete.`, which is
+  resumable like its five siblings: [the wrapper](./response-stopped-arriving#five-sibling-lines-same-fix).
 - **`last exit code` = 126 or 127**: launchd did start it, and it died immediately — a script
   without the executable bit, or a binary not on launchd's minimal `PATH`. From the outside this
   looks exactly like "never started", because the job wrote nothing.
