@@ -188,6 +188,7 @@ not run the real action or the real CLI.
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Command(s) not in the allowed commands list" — the PR review never got its context](./gemini-command-not-in-allowed-list)
 - [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
+- [codex-action: "The hosted runner lost communication with the server." — v1.12 drop-sudo breaks /run sockets](./codex-drop-sudo-runner-dies)
 
 ---
 

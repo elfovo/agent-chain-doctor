@@ -207,6 +207,7 @@ Again: this silences the error, it does not supply the PR number.
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
 - [run-gemini-cli: "Gemini CLI stderr was not valid JSON" — where the real error is](./gemini-stderr-not-valid-json)
+- [codex-action: "The hosted runner lost communication with the server." — v1.12 drop-sudo breaks /run sockets](./codex-drop-sudo-runner-dies)
 
 ---
 
