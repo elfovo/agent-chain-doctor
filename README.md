@@ -881,6 +881,13 @@ Ask in the issue if your case differs.
 - [#34](https://github.com/elfovo/agent-chain-doctor/issues/34) Cowork "Failed to run scheduled task. You can try again." / every fire "Skipped"
 - [#35](https://github.com/elfovo/agent-chain-doctor/issues/35) Claude Code scheduled task stuck "Running" forever, no error
 - [#36](https://github.com/elfovo/agent-chain-doctor/issues/36) Scheduled task burns tokens on runs with nothing to do
+- [#37](https://github.com/elfovo/agent-chain-doctor/issues/37) "Claude needs your input to continue" — a scheduled task stuck on a permission prompt
+- [#38](https://github.com/elfovo/agent-chain-doctor/issues/38) "Starting sessions requires a user at the keyboard; this session runs unattended"
+- [#39](https://github.com/elfovo/agent-chain-doctor/issues/39) "[structured-output-enforce] You MUST call the StructuredOutput tool"
+- [#40](https://github.com/elfovo/agent-chain-doctor/issues/40) Agent SDK (Python) leaves `claude` processes running after `break`
+- [#41](https://github.com/elfovo/agent-chain-doctor/issues/41) claude-code-action "Credit balance is too low" while the same key works with `claude -p`
+- [#42](https://github.com/elfovo/agent-chain-doctor/issues/42) run-gemini-cli "Command(s) not in the allowed commands list" — the PR context never reached the agent
+- [#43](https://github.com/elfovo/agent-chain-doctor/issues/43) run-gemini-cli "Error: [object Object]" / "See logs for more details"
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
