@@ -888,6 +888,7 @@ Ask in the issue if your case differs.
 - [#41](https://github.com/elfovo/agent-chain-doctor/issues/41) claude-code-action "Credit balance is too low" while the same key works with `claude -p`
 - [#42](https://github.com/elfovo/agent-chain-doctor/issues/42) run-gemini-cli "Command(s) not in the allowed commands list" — the PR context never reached the agent
 - [#43](https://github.com/elfovo/agent-chain-doctor/issues/43) run-gemini-cli "Error: [object Object]" / "See logs for more details"
+- [#44](https://github.com/elfovo/agent-chain-doctor/issues/44) run-gemini-cli "Gemini CLI stderr was not valid JSON" — where the real error is
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
