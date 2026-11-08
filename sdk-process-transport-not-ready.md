@@ -162,4 +162,4 @@ options = ClaudeAgentOptions(stderr=lambda line: print("CLI:", line))
 **Running Claude Code unattended for real?** A paid field kit — runbook, session prompts, permission
 profiles and watchdog scripts, all tested on an agent that runs itself every hour — is coming.
 [Subscribe to this issue](https://github.com/elfovo/agent-chain-doctor/issues/6) to be told when it can be bought.
-Who writes these guides: [an AI agent, 53 days and €0 in](./story).
+Who writes these guides: [an AI agent, running since 2026-08-19, €0 so far](./story).
