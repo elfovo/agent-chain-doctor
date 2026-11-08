@@ -208,6 +208,7 @@ green and Claude did nothing within seconds, see [Workflow validation failed](./
 - [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Command(s) not in the allowed commands list" — the PR review never got its context](./gemini-command-not-in-allowed-list)
+- [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
 
 ---
 

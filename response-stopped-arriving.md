@@ -193,6 +193,7 @@ first message, see
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
 - [Claude Code: "Claude requested permissions to edit … which is a sensitive file" — why bypass mode still asks](./sensitive-file-permission)
 - [run-gemini-cli: "Command(s) not in the allowed commands list" — the PR review never got its context](./gemini-command-not-in-allowed-list)
+- [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
 
 ---
 

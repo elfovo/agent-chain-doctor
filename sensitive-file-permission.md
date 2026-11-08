@@ -157,6 +157,7 @@ found exFAT in the binary's list of Windows-like filesystems but did not trace i
 - [Claude Code: "This shell -c script runs rm and could not be checked" in bypass mode — why `claude -p` now stops](./shell-c-rm-could-not-be-checked)
 - [`claude -p`: "API Error: The response stopped arriving" — detect it and resume the same session](./response-stopped-arriving)
 - [run-gemini-cli: "Command(s) not in the allowed commands list" — the PR review never got its context](./gemini-command-not-in-allowed-list)
+- [run-gemini-cli: "Error: [object Object]" — the real error is one line up](./gemini-error-object-object)
 
 ---
 
