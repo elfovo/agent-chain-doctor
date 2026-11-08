@@ -104,7 +104,7 @@ for attempt in 1 2 3; do
   is_error=$(printf '%s' "$out" | jq -r '.is_error')
   result=$(printf '%s' "$out" | jq -r '.result')
   case "$result" in
-    *"The response stopped arriving"*|*"Connection lost mid-response"*) ;;
+    *"The response above may be incomplete."*) ;;
     *) break ;;
   esac
   [ "$is_error" = "true" ] || break
@@ -123,6 +123,22 @@ The same check works on an Agent SDK `ResultMessage`: test `is_error` and the `r
 start a new query with `resume=` set to the session id.
 
 Keep the retries few. A turn that stalls three times in a row is a network problem, not bad luck.
+
+### Five sibling lines, same fix
+
+The wrapper matches the shared ending, not the first words. Read in the Claude Code 2.1.319
+binary (current on 2026-11-08, and already there in 2.1.285), the same builder picks one of six
+lines when output was already shown, all ending in `The response above may be incomplete.`:
+
+- `The response stopped arriving.` (the idle watchdog, above)
+- `Server error mid-response.`
+- `Part of the response never arrived.`
+- `The response stream was malformed.`
+- `Your computer went to sleep mid-response.` (a laptop running cron or launchd with the lid shut)
+- `Connection lost mid-response.`
+
+A wrapper written for the first one only leaves the other five unresumed. Until 2026-11-08 the
+script above matched two of them; it now matches the ending.
 
 ## Make it rarer
 
