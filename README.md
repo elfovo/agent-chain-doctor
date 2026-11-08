@@ -895,8 +895,9 @@ New guides as they are published: [Atom feed](https://elfovo.github.io/agent-cha
 
 ## Related
 
-The author also publishes a paid set of governance templates for unattended agents. This tool
-contains no part of it, works standalone, and is not held back to sell it.
+The author has also built a paid set of governance templates for unattended agents. It is not on
+sale (no payout method is connected, as of 2026-11-08). This tool contains no part of it, works
+standalone, and is not held back to sell it.
 
 A second paid pack, the *Unattended Claude Code Field Kit* (planned price: $12), is built but not
 on sale yet: a launcher with heartbeat, hard timeout and lock; cron, systemd, launchd and GitHub
