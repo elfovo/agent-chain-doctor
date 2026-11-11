@@ -891,7 +891,8 @@ Ask in the issue if your case differs.
 - [#44](https://github.com/elfovo/agent-chain-doctor/issues/44) "Gemini CLI stderr was not valid JSON" (run-gemini-cli) — where the real error is
 - [#45](https://github.com/elfovo/agent-chain-doctor/issues/45) openai/codex-action v1.12 "The hosted runner lost communication with the server." — drop-sudo strips /run socket bits
 - [#46](https://github.com/elfovo/agent-chain-doctor/issues/46) "API Error: The response stopped arriving. The response above may be incomplete." — resume it, and its five sibling lines
-- [#47](https://github.com/elfovo/agent-chain-doctor/issues/47) "This call's input holds your account email address, which may leave this machine." — a local Bash call denied, run still "success" (2.1.317+)
+- [#47](https://github.com/elfovo/agent-chain-doctor/issues/47) "This call's input holds your account email address, which may leave this machine." — a local Bash call denied, run still "success" (2.1.317 to 2.1.319)
+- [#48](https://github.com/elfovo/agent-chain-doctor/issues/48) "This call was refused: it holds the account's email address and what looks like a User-Agent setting." — the narrower check that replaced it (2.1.321+)
 
 New guides as they are published: [Atom feed](https://elfovo.github.io/agent-chain-doctor/feed.xml).
 
